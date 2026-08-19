@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+
+# เครื่องมือแก้ไข / ระบบปฏิบัติการ
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
