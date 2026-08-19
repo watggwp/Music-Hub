@@ -168,6 +168,14 @@
     }
   }
 
+  // เติมสีรางแถบเสียงให้เห็นระดับที่เลือก (สภาพแวดล้อมทดสอบไม่มี setProperty จึงเช็คก่อน)
+  function paintVolume(value) {
+    const slider = $("volume");
+    if (slider.style && slider.style.setProperty) {
+      slider.style.setProperty("--fill", Math.max(0, Math.min(100, value)) + "%");
+    }
+  }
+
   // ลากแถบเสียงทีเดียวยิงได้เป็นสิบ event — รวบส่งเป็นชุดกัน broadcast ท่วม
   let volumeTimer = null;
   let volumePending = null;
@@ -455,13 +463,17 @@
     $("remoteWho").textContent = host
       ? "เสียงออกที่เครื่องของ " + host.name
       : "ยังไม่มีเครื่องไหนเป็นลำโพง";
-    $("remoteArt").src = track ? "https://i.ytimg.com/vi/" + track.videoId + "/mqdefault.jpg" : "";
+    const art = track ? "https://i.ytimg.com/vi/" + track.videoId + "/mqdefault.jpg" : "";
+    $("remoteArt").src = art;
     $("remoteArt").hidden = !track;
+    $("ambient").style.backgroundImage = art ? "url(" + art + ")" : "";
+    $("app").classList[state.playing && track ? "add" : "remove"]("is-playing");
 
     if (!draggingVolume) {
       const shown = wantedVolume();
       $("volume").value = shown;
       $("volLabel").textContent = shown;
+      paintVolume(shown);
     }
 
     $("openControl").checked = state.openControl;
@@ -774,6 +786,7 @@
     localVolumeAt = Date.now();
     if (state) localVolumeSeq = state.volumeSeq;
     $("volLabel").textContent = value;
+    paintVolume(value);
     applyVolume(value);        // เครื่องโฮสต์ได้ยินผลทันที ไม่ต้องรอเซิร์ฟเวอร์ตอบ
     sendVolume(value, false);
   });

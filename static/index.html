@@ -2,20 +2,33 @@
 <html lang="th">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#06080e" />
+<meta name="description" content="ฟังเพลงพร้อมกันทุกเครื่องในห้องเดียว เสียงออกที่โฮสต์ เครื่องอื่นเป็นรีโมท" />
 <title>SynHub Music — ฟังพร้อมกัน</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='25' font-size='24'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="/static/style.css?v=13" />
+<link rel="preconnect" href="https://i.ytimg.com" />
+<link rel="stylesheet" href="/static/style.css?v=15" />
 </head>
 <body>
 
+<!-- แสงพื้นหลัง เคลื่อนช้า ๆ ไม่รับการคลิก -->
+<div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
+<!-- ================= หน้าเข้าห้อง ================= -->
 <div id="gate" class="gate">
   <div class="gate-card">
-    <h1>SynHub Music</h1>
-    <p class="muted">เสียงออกที่เครื่องโฮสต์เครื่องเดียว เครื่องที่เหลือเป็นรีโมทคุมเพลง</p>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">♪</span>
+      <div>
+        <h1>SynHub Music</h1>
+        <p class="muted tiny">ฟังพร้อมกัน ทุกเครื่องเห็นตรงกัน</p>
+      </div>
+    </div>
+    <p class="lede">เสียงออกที่เครื่องโฮสต์เครื่องเดียว เครื่องที่เหลือเป็นรีโมทคุมเพลง</p>
 
     <label for="nameInput">ชื่อของคุณ</label>
-    <input id="nameInput" maxlength="24" placeholder="เช่น วัด" />
+    <input id="nameInput" maxlength="24" placeholder="เช่น วัฒน์" autocomplete="nickname" />
 
     <div class="rooms-head">
       <label>ห้องที่เปิดอยู่ — กดเพื่อเข้า</label>
@@ -23,103 +36,129 @@
     </div>
     <div id="roomList" class="room-list"></div>
 
-    <button id="newRoomBtn" class="primary">+ สร้างห้องใหม่ (เครื่องนี้เป็นลำโพง)</button>
+    <button type="button" id="newRoomBtn" class="primary big">
+      + สร้างห้องใหม่
+      <small>เครื่องนี้จะเป็นลำโพง</small>
+    </button>
   </div>
 </div>
 
+<!-- ================= หน้าห้อง ================= -->
 <main id="app" hidden>
   <header>
     <div class="head-left">
+      <span class="brand-mark sm" aria-hidden="true">♪</span>
       <span class="label">ห้อง</span>
       <strong id="roomCode">-----</strong>
-      <button id="copyLinkBtn" class="ghost small">คัดลอกลิงก์</button>
-      <button id="leaveBtn" class="ghost small">ออกจากห้อง</button>
+      <button type="button" id="copyLinkBtn" class="ghost small">คัดลอกลิงก์</button>
+      <button type="button" id="leaveBtn" class="ghost small danger">ออกจากห้อง</button>
     </div>
     <div class="status">
       <span id="syncBadge" class="badge">กำลังเชื่อมต่อ…</span>
       <span id="roleBadge" class="badge"></span>
-      <button id="claimBtn" class="ghost small" hidden>ย้ายลำโพงมาเครื่องนี้</button>
+      <button type="button" id="claimBtn" class="ghost small" hidden>ย้ายลำโพงมาเครื่องนี้</button>
     </div>
   </header>
 
   <section class="stage">
+    <!-- ---------- ฝั่งเครื่องเล่น ---------- -->
     <div class="player-wrap">
-      <!-- โฮสต์: player จริง (เสียงออกที่นี่) -->
-      <div id="playerBox" hidden><div id="playerStage"></div></div>
+      <div id="ambient" class="ambient" aria-hidden="true"></div>
+      <div class="player-inner">
+        <!-- โฮสต์: player จริง (เสียงออกที่นี่) -->
+        <div id="playerBox" hidden><div id="playerStage"></div></div>
 
-      <!-- รีโมท: ไม่โหลด player เลย จึงไม่มีเสียงและไม่กินเน็ต -->
-      <div id="remoteBox" class="remote" hidden>
-        <img id="remoteArt" alt="" />
-        <div class="remote-meta">
-          <span class="badge">โหมดรีโมท</span>
-          <p id="remoteWho" class="muted"></p>
+        <!-- รีโมท: ไม่โหลด player เลย จึงไม่มีเสียงและไม่กินเน็ต -->
+        <div id="remoteBox" class="remote" hidden>
+          <div class="remote-art"><img id="remoteArt" alt="" /></div>
+          <div class="remote-meta">
+            <span class="badge">🎛 โหมดรีโมท</span>
+            <p id="remoteWho" class="muted"></p>
+            <p class="tiny muted">สั่งเพลงและปรับเสียงได้จากที่นี่ เสียงจะออกที่เครื่องโฮสต์</p>
+          </div>
         </div>
-      </div>
 
-      <div class="now-row">
-        <div id="nowTitle" class="now-title">ยังไม่มีเพลงในคิว</div>
-        <a id="ytLink" class="ghost small yt" target="_blank" rel="noopener" hidden>เปิดบน YouTube ↗</a>
-      </div>
-      <div class="bar"><div id="progress"></div></div>
+        <div class="now-row">
+          <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <div id="nowTitle" class="now-title">ยังไม่มีเพลงในคิว</div>
+          <a id="ytLink" class="ghost small yt" target="_blank" rel="noopener" hidden>เปิดบน YouTube ↗</a>
+        </div>
 
-      <div class="controls">
-        <button id="prevBtn" title="เริ่มเพลงนี้ใหม่">⟲</button>
-        <button id="playBtn" class="primary">▶</button>
-        <button id="nextBtn" title="ถัดไป">⏭</button>
-        <span id="timeLabel" class="mono">0:00 / 0:00</span>
-        <button id="unblockBtn" class="warnbtn" hidden>เบราว์เซอร์บล็อกเสียง — แตะเพื่อเล่น</button>
-        <span class="spacer"></span>
-        <label class="vol">🔊
-          <input id="volume" type="range" min="0" max="100" value="70" />
-          <span id="volLabel" class="mono">70</span>
-          <span id="volActual" class="warnbtn tiny" hidden></span>
-        </label>
+        <div class="bar-wrap">
+          <div class="bar"><div id="progress"></div></div>
+        </div>
+
+        <div class="controls">
+          <button type="button" id="prevBtn" class="tbtn ghost" title="เริ่มเพลงนี้ใหม่" aria-label="เริ่มเพลงนี้ใหม่">⟲</button>
+          <button type="button" id="playBtn" class="tbtn primary" title="เล่น / หยุด" aria-label="เล่นหรือหยุด">▶</button>
+          <button type="button" id="nextBtn" class="tbtn ghost" title="เพลงถัดไป" aria-label="เพลงถัดไป">⏭</button>
+          <span id="timeLabel" class="mono">0:00 / 0:00</span>
+          <button type="button" id="unblockBtn" class="warnbtn" hidden>เบราว์เซอร์บล็อกเสียง — แตะเพื่อเล่น</button>
+          <span class="spacer"></span>
+          <label class="vol">
+            <span aria-hidden="true">🔊</span>
+            <input id="volume" type="range" min="0" max="100" value="70" aria-label="ระดับเสียงของลำโพง" />
+            <span id="volLabel" class="mono">70</span>
+            <span id="volActual" class="warnbtn tiny" hidden></span>
+          </label>
+        </div>
+
+        <p class="hint">แถบเสียงคุมลำโพงของเครื่องโฮสต์ ปรับจากเครื่องไหนก็ได้ · คลิกบนแถบเวลาเพื่อเลื่อนเพลง</p>
       </div>
-      <p class="hint">แถบเสียงนี้คุมลำโพงของเครื่องโฮสต์ ปรับจากเครื่องไหนก็ได้ · คลิกบนแถบเวลาเพื่อเลื่อนเพลง</p>
     </div>
 
+    <!-- ---------- ฝั่งจัดการเพลง ---------- -->
     <aside>
-      <form id="addForm" class="add">
-        <input id="urlInput" placeholder="ค้นหาชื่อเพลง หรือวางลิงก์ YouTube" />
-        <button class="primary" type="submit">ค้นหา / เพิ่ม</button>
-      </form>
-      <p class="hint">พิมพ์ชื่อเพลงเพื่อค้นหา · วางลิงก์คลิปเพื่อเพิ่มทันที · ลิงก์ playlist เพิ่มทั้งชุด (สูงสุด 100 เพลง)</p>
+      <div class="panel">
+        <h2>เพิ่มเพลง</h2>
+        <form id="addForm" class="add">
+          <input id="urlInput" placeholder="ค้นหาชื่อเพลง หรือวางลิงก์ YouTube" autocomplete="off" />
+          <button type="submit" class="primary">ค้นหา / เพิ่ม</button>
+        </form>
+        <p class="hint">พิมพ์ชื่อเพลงเพื่อค้นหา · วางลิงก์คลิปเพื่อเพิ่มทันที · ลิงก์ playlist เพิ่มทั้งชุด (สูงสุด 100 เพลง)</p>
 
-      <div id="searchPanel" class="search-panel" hidden>
-        <div class="search-head">
-          <strong id="searchTitle">ผลค้นหา</strong>
-          <button id="closeSearchBtn" class="ghost small">ปิด</button>
+        <div id="searchPanel" class="search-panel" hidden>
+          <div class="search-head">
+            <strong id="searchTitle">ผลค้นหา</strong>
+            <button type="button" id="closeSearchBtn" class="ghost small">ปิด</button>
+          </div>
+          <ol id="searchResults" class="search-list"></ol>
         </div>
-        <ol id="searchResults" class="search-list"></ol>
-      </div>
 
-      <div id="addNotice" class="add-notice" hidden>
-        <p id="addNoticeText"></p>
-        <div class="add-notice-acts">
-          <button id="addAnywayBtn" class="ghost small">เพิ่มเข้าคิวอยู่ดี</button>
-          <button id="dismissNoticeBtn" class="ghost small">ปิด</button>
+        <div id="addNotice" class="add-notice" hidden>
+          <p id="addNoticeText"></p>
+          <div class="add-notice-acts">
+            <button type="button" id="addAnywayBtn" class="ghost small">เพิ่มเข้าคิวอยู่ดี</button>
+            <button type="button" id="dismissNoticeBtn" class="ghost small">ปิด</button>
+          </div>
         </div>
       </div>
-      <div class="queue-head">
-        <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
-        <button id="shuffleBtn" class="ghost small">สุ่ม</button>
-      </div>
-      <p class="hint">ลากที่ ≡ เพื่อย้ายไปตำแหน่งไหนก็ได้ · ▶ เล่นเพลงนั้นเลย · ✕ เอาออกจากคิว</p>
-      <ol id="queue" class="queue"></ol>
 
-      <h2>เครื่องในห้อง <span id="listenerCount" class="muted"></span></h2>
-      <ul id="listeners" class="listeners"></ul>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
+          <button type="button" id="shuffleBtn" class="ghost small">🔀 สุ่ม</button>
+        </div>
+        <ol id="queue" class="queue"></ol>
+        <p class="hint">ลากที่ ≡ เพื่อย้ายไปตำแหน่งไหนก็ได้ · ▶ เล่นเพลงนั้นเลย · ✕ เอาออกจากคิว</p>
+      </div>
+
+      <div class="panel">
+        <h2>เครื่องในห้อง <span id="listenerCount" class="muted"></span></h2>
+        <ul id="listeners" class="listeners"></ul>
+      </div>
 
       <label class="toggle">
         <input id="openControl" type="checkbox" />
-        <span>ให้ทุกเครื่องคุมเพลงได้ (โฮสต์เท่านั้นที่ตั้งค่านี้ได้)</span>
+        <span>ให้ทุกเครื่องคุมเพลงได้ <small class="tiny">(โฮสต์เท่านั้นที่ตั้งค่านี้ได้)</small></span>
       </label>
-      <p id="toast" class="toast"></p>
     </aside>
   </section>
+
+  <p id="toast" class="toast" role="status" aria-live="polite"></p>
 </main>
 
 <script src="https://www.youtube.com/iframe_api"></script>
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=15"></script>
 </body>
 </html>
