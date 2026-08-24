@@ -4,11 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#060b08" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="description" content="ฟังเพลงพร้อมกันทุกเครื่องในห้องเดียว เสียงออกที่โฮสต์ เครื่องอื่นเป็นรีโมท" />
 <title>SynTech Music — ฟังพร้อมกัน</title>
+<link rel="manifest" href="/static/manifest.json" />
 <link rel="icon" href="/static/logo-mark.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://i.ytimg.com" />
-<link rel="stylesheet" href="/static/style.css?v=16" />
+<link rel="stylesheet" href="/static/style.css?v=17" />
 </head>
 <body>
 
@@ -39,15 +43,15 @@
     </div>
     <div id="roomList" class="room-list"></div>
 
-    <button type="button" id="newRoomBtn" class="primary big">
-      + สร้างห้องใหม่
-      <small>เครื่องนี้จะเป็นลำโพง</small>
+    <button type="button" id="newRoomBtn" class="primary">
+      <span>+ สร้างห้องใหม่</span>
+      <small>เครื่องนี้จะเป็นลำโพงโดยอัตโนมัติ</small>
     </button>
   </div>
 </div>
 
-<!-- ================= หน้าห้อง ================= -->
-<main id="app" hidden>
+<!-- ================= หน้าเล่นเพลงในห้อง ================= -->
+<div id="app" class="app" hidden>
   <header>
     <div class="head-left">
       <div class="head-brand">
@@ -55,62 +59,72 @@
         <span class="music-pill sm">MUSIC</span>
       </div>
       <span class="label">ห้อง</span>
-      <strong id="roomCode">-----</strong>
+      <strong id="roomCode">------</strong>
       <button type="button" id="copyLinkBtn" class="ghost small">คัดลอกลิงก์</button>
-      <button type="button" id="leaveBtn" class="ghost small danger">ออกจากห้อง</button>
+      <button type="button" id="leaveBtn" class="ghost small">ออกจากห้อง</button>
     </div>
     <div class="status">
-      <span id="syncBadge" class="badge"><i class="status-dot"></i>กำลังเชื่อมต่อ…</span>
-      <span id="roleBadge" class="badge"></span>
-      <button type="button" id="claimBtn" class="ghost small" hidden>ย้ายลำโพงมาเครื่องนี้</button>
+      <div id="roleBadge" class="badge"></div>
+      <button type="button" id="claimBtn" class="primary tiny" title="ย้ายลำโพงมาเปิดที่เครื่องนี้">
+        ย้ายลำโพงมาเครื่องนี้
+      </button>
     </div>
   </header>
 
   <section class="stage">
-    <!-- ---------- ฝั่งเครื่องเล่น ---------- -->
+    <!-- ---------- ฝั่งเครื่องเล่น (เครื่องโฮสต์ส่งเสียง) ---------- -->
     <div class="player-wrap">
-      <div id="ambient" class="ambient" aria-hidden="true"></div>
       <div class="player-inner">
-        <!-- โฮสต์: player จริง (เสียงออกที่นี่) -->
-        <div id="playerBox" hidden><div id="playerStage"></div></div>
+        <!-- กรอบ YouTube player: แสดงเฉพาะโฮสต์, รีโมทจะเห็นเป็นปกเพลง -->
+        <div id="playerStage" class="player-stage">
+          <div id="ambient" class="ambient" aria-hidden="true"></div>
 
-        <!-- รีโมท: ไม่โหลด player เลย จึงไม่มีเสียงและไม่กินเน็ต -->
-        <div id="remoteBox" class="remote" hidden>
-          <div class="remote-art"><img id="remoteArt" alt="" /></div>
-          <div class="remote-meta">
-            <span class="badge">🎛 โหมดรีโมท</span>
-            <p id="remoteWho" class="muted"></p>
-            <p class="tiny muted">สั่งเพลงและปรับเสียงได้จากที่นี่ เสียงจะออกที่เครื่องโฮสต์</p>
+          <!-- โหมดรีโมท: แสดงปกเพลงขนาดใหญ่ -->
+          <div id="remoteOverlay" class="remote">
+            <div class="remote-art">
+              <img id="remoteArt" src="" alt="" hidden />
+            </div>
+            <div class="remote-meta">
+              <span class="badge tiny ok">กำลังเล่นบนโฮสต์</span>
+              <p id="remoteWho" class="muted tiny">เสียงออกที่เครื่องโฮสต์</p>
+            </div>
           </div>
         </div>
 
         <div class="now-row">
-          <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
-          <div id="nowTitle" class="now-title">ยังไม่มีเพลงในคิว</div>
-          <a id="ytLink" class="ghost small yt" target="_blank" rel="noopener" hidden>เปิดบน YouTube ↗</a>
+          <span class="status-dot"></span>
+          <span class="now-title" id="nowTitle">ยังไม่มีเพลงในคิว</span>
+          <div class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <a id="ytLink" class="yt-link" target="_blank" rel="noopener" hidden title="เปิดบน YouTube">↗ YouTube</a>
         </div>
 
+        <!-- แถบเวลา -->
         <div class="bar-wrap">
-          <div class="bar"><div id="progress"></div></div>
+          <div class="bar">
+            <div id="progress" class="fill"></div>
+          </div>
         </div>
 
         <div class="controls">
-          <button type="button" id="prevBtn" class="tbtn ghost" title="เริ่มเพลงนี้ใหม่" aria-label="เริ่มเพลงนี้ใหม่">⟲</button>
-          <button type="button" id="playBtn" class="tbtn primary" title="เล่น / หยุด" aria-label="เล่นหรือหยุด">▶</button>
-          <button type="button" id="nextBtn" class="tbtn ghost" title="เพลงถัดไป" aria-label="เพลงถัดไป">⏭</button>
+          <button type="button" id="prevBtn" class="tbtn ghost" title="เริ่มเพลงนี้ใหม่ (Shift+Left)" aria-label="เริ่มเพลงนี้ใหม่">⟲</button>
+          <button type="button" id="playBtn" class="tbtn primary" title="เล่น / หยุด (Spacebar)" aria-label="เล่นหรือหยุด">▶</button>
+          <button type="button" id="nextBtn" class="tbtn ghost" title="เพลงถัดไป (Shift+Right)" aria-label="เพลงถัดไป">⏭</button>
           <span id="timeLabel" class="mono">0:00 / 0:00</span>
           <button type="button" id="unblockBtn" class="warnbtn" hidden>เบราว์เซอร์บล็อกเสียง — แตะเพื่อเล่น</button>
           <span class="spacer"></span>
           <div class="vol-wrap">
             <label class="vol">
-              <span aria-hidden="true">🔊</span>
+              <button type="button" id="muteBtn" class="mute-btn" title="ปิด/เปิดเสียง (กด M)" aria-label="ปิดหรือเปิดเสียง">🔊</button>
               <input id="volume" type="range" min="0" max="100" value="70" aria-label="ระดับเสียงของลำโพง" />
               <span id="volLabel" class="mono">70</span>
             </label>
           </div>
         </div>
 
-        <p class="hint">แถบเสียงคุมลำโพงของเครื่องโฮสต์ ปรับจากเครื่องไหนก็ได้ · คลิกบนแถบเวลาเพื่อเลื่อนเพลง</p>
+        <p class="hint">
+          <span>แถบเสียงคุมลำโพงโฮสต์ · คลิกแถบเวลาเพื่อเลื่อน</span>
+          <span class="keys-badge" title="Space: เล่น/หยุด | M: Mute | N: ข้าม | R: วนซ้ำ | S: สุ่ม | ↑/↓: ปรับเสียง">⌨️ คีย์ลัด (Space/M/N/R/S)</span>
+        </p>
       </div>
     </div>
 
@@ -122,7 +136,7 @@
           <input id="urlInput" placeholder="ค้นหาชื่อเพลง หรือวางลิงก์ YouTube" autocomplete="off" />
           <button type="submit" class="primary">ค้นหา / เพิ่ม</button>
         </form>
-        <p class="hint">พิมพ์ชื่อเพลงเพื่อค้นหา · วางลิงก์คลิปเพื่อเพิ่มทันที · ลิงก์ playlist เพิ่มทั้งชุด (สูงสุด 100 เพลง)</p>
+        <p class="hint">พิมพ์ชื่อเพลงเพื่อค้นหาแบบค้นสด · วางลิงก์คลิปหรือ playlist (สูงสุด 100 เพลง)</p>
 
         <div id="searchPanel" class="search-panel" hidden>
           <div class="search-head">
@@ -145,12 +159,22 @@
         <div class="panel-head">
           <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
           <div class="panel-acts">
-            <button type="button" id="shuffleBtn" class="ghost small">🔀 สุ่ม</button>
+            <button type="button" id="repeatBtn" class="ghost small" title="เปลี่ยนโหมดวนซ้ำ (กด R)">➡️ ไม่ซ้ำ</button>
+            <button type="button" id="shuffleBtn" class="ghost small" title="สุ่มคิว (กด S)">🔀 สุ่ม</button>
             <button type="button" id="clearQueueBtn" class="ghost small danger" title="ล้างเพลงทั้งหมดในคิว">🗑 ล้างคิว</button>
           </div>
         </div>
         <ol id="queue" class="queue"></ol>
         <p class="hint">ลากที่ ≡ เพื่อย้ายไปตำแหน่งไหนก็ได้ · ▶ เล่นเพลงนั้นเลย · ✕ เอาออกจากคิว</p>
+      </div>
+
+      <!-- ---------- ประวัติเพลงที่เพิ่งเล่นไป ---------- -->
+      <div class="panel">
+        <div class="panel-head">
+          <h2>ประวัติเพลงที่เล่น <span id="historyCount" class="muted"></span></h2>
+          <button type="button" id="toggleHistoryBtn" class="ghost small">📜 แสดง/ซ่อน</button>
+        </div>
+        <ol id="historyList" class="history-list" hidden></ol>
       </div>
 
       <div class="panel">
@@ -166,9 +190,9 @@
   </section>
 
   <p id="toast" class="toast" role="status" aria-live="polite"></p>
-</main>
+</div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
-<script src="/static/app.js?v=19"></script>
+<script src="/static/app.js?v=22"></script>
 </body>
 </html>

@@ -41,7 +41,7 @@ rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
 
 CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
-                   "shuffle", "setVolume", "clearQueue"}
+                   "shuffle", "setVolume", "clearQueue", "setRepeatMode"}
 
 
 def now_ms() -> int:
@@ -122,20 +122,23 @@ async def api_new_room() -> JSONResponse:
 @app.get("/api/rooms")
 async def api_rooms() -> JSONResponse:
     items = []
-    for room in list(rooms.values()):
-        if not room.clients and not room.queue:
-            continue  # ห้องที่เพิ่งสร้างแต่ยังไม่มีใครเข้า ไม่ต้องโชว์
-        track = room.current()
-        items.append(
-            {
-                "code": room.code,
-                "listeners": len(room.clients),
-                "queueLength": len(room.queue),
-                "playing": room.playing,
-                "nowPlaying": track["title"] if track else None,
-                "hostName": room.names.get(room.host_id) if room.host_id else None,
-            }
-        )
+    async with rooms_lock:
+        room_list = list(rooms.values())
+    for room in room_list:
+        async with room.lock:
+            if not room.clients and not room.queue:
+                continue  # ห้องที่เพิ่งสร้างแต่ยังไม่มีใครเข้า ไม่ต้องโชว์
+            track = room.current()
+            items.append(
+                {
+                    "code": room.code,
+                    "listeners": len(room.clients),
+                    "queueLength": len(room.queue),
+                    "playing": room.playing,
+                    "nowPlaying": track["title"] if track else None,
+                    "hostName": room.names.get(room.host_id) if room.host_id else None,
+                }
+            )
     items.sort(key=lambda r: (-r["listeners"], r["code"]))
     return JSONResponse({"rooms": items})
 
@@ -356,12 +359,14 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             room.set_volume(message.get("value"))
         elif kind == "shuffle":
             room.shuffle_rest()
+        elif kind == "setRepeatMode":
+            room.set_repeat_mode(message.get("mode"))
         elif kind == "clearQueue":
             room.clear_queue()
-            who = room.names.get(client_id, "ผู้ฟัง")
 
     await broadcast(room)
     if kind == "clearQueue":
+        who = room.names.get(client_id, "ผู้ฟัง")
         await notify(room, f"“{who}” ได้ล้างคิวเพลงทั้งหมดแล้ว")
 
 

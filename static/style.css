@@ -669,6 +669,66 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
   color: #ff8787;
 }
 
+.mute-btn {
+  background: transparent;
+  border: 0;
+  padding: .2rem;
+  font-size: .95rem;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: transform .16s, opacity .16s;
+}
+.mute-btn:hover { transform: scale(1.15); }
+.mute-btn.is-muted { opacity: .5; }
+
+.keys-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  color: var(--muted);
+  font-size: .72rem;
+  margin-left: auto;
+  cursor: help;
+  opacity: .85;
+  transition: opacity .16s;
+}
+.keys-badge:hover { opacity: 1; color: var(--accent-3); }
+
+#repeatBtn.is-repeat-all {
+  color: var(--accent-3);
+  border-color: rgba(244, 188, 18, .4);
+  background: rgba(244, 188, 18, .12);
+}
+#repeatBtn.is-repeat-one {
+  color: var(--accent);
+  border-color: rgba(46, 157, 104, .5);
+  background: rgba(46, 157, 104, .16);
+}
+
+/* ---- ประวัติเพลง ---- */
+.history-list { list-style: none; margin: 0; padding: 0; max-height: min(30vh, 260px); overflow: auto; }
+.history-list:empty::after {
+  content: "ยังไม่มีประวัติเพลงที่เล่นไป";
+  display: grid;
+  place-items: center;
+  padding: 1rem .6rem;
+  text-align: center;
+  font-size: .75rem;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+}
+.history-list li {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .3rem;
+  border-bottom: 1px solid var(--line);
+  font-size: .8rem;
+}
+.history-list li:last-child { border-bottom: 0; }
+.history-list .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .add { display: flex; gap: .5rem; }
 .add input { flex: 1; min-width: 0; }
 .add button { flex-shrink: 0; }
@@ -709,7 +769,29 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
 .add-notice-acts { display: flex; gap: .4rem; flex-wrap: wrap; }
 
 /* ---- คิวเพลง ---- */
-.queue { list-style: none; margin: 0; padding: 0; max-height: min(44vh, 460px); overflow: auto; }
+.queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(46, 157, 104, .4) transparent;
+}
+.queue::-webkit-scrollbar {
+  width: 5px;
+}
+.queue::-webkit-scrollbar-track {
+  background: transparent;
+}
+.queue::-webkit-scrollbar-thumb {
+  background: rgba(46, 157, 104, .3);
+  border-radius: 999px;
+}
+.queue::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
 .queue:empty::after {
   content: "คิวว่าง — ค้นหาหรือวางลิงก์ด้านบนเพื่อเพิ่มเพลง";
   display: grid;

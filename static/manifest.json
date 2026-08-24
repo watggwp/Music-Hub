@@ -1,0 +1,18 @@
+{
+  "name": "SynTech Music",
+  "short_name": "SynTech",
+  "description": "High-Tech Collaborative Music Hub",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060b08",
+  "theme_color": "#060b08",
+  "icons": [
+    {
+      "src": "/static/logo-mark.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

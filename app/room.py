@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import secrets
 import time
 from typing import Any
 
@@ -15,6 +16,8 @@ class Room:
     def __init__(self, code: str) -> None:
         self.code = code
         self.queue: list[dict[str, Any]] = []   # queue[0] = กำลังเล่น
+        self.history: list[dict[str, Any]] = [] # ประวัติเพลงที่เล่นจบไปแล้ว
+        self.repeat_mode = "off"          # "off", "all", "one"
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
         self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
@@ -52,6 +55,14 @@ class Room:
     def _find(self, track_id: str) -> int | None:
         return next((i for i, t in enumerate(self.queue) if t["id"] == track_id), None)
 
+    def _add_history(self, track: dict[str, Any]) -> None:
+        if not self.history or self.history[0].get("videoId") != track.get("videoId"):
+            item = dict(track)
+            item["id"] = secrets.token_hex(4)
+            self.history.insert(0, item)
+            if len(self.history) > 20:
+                self.history.pop()
+
     def add(self, track: dict[str, Any]) -> None:
         was_empty = not self.queue
         self.queue.append(track)
@@ -60,16 +71,32 @@ class Room:
 
     def drop_current(self) -> None:
         """เล่นจบ / กดข้าม / เล่นไม่ได้ -> เอาเพลงหัวแถวออกแล้วเริ่มเพลงถัดไป"""
-        if self.queue:
+        if not self.queue:
+            self.set_position(0.0, playing=False)
+            return
+
+        current_track = self.queue[0]
+        self._add_history(current_track)
+
+        if self.repeat_mode == "one":
+            self.set_position(0.0, playing=True)
+            return
+        elif self.repeat_mode == "all":
+            finished = self.queue.pop(0)
+            self.queue.append(finished)
+            self.set_position(0.0, playing=True)
+            return
+        else:
             self.queue.pop(0)
-        self.set_position(0.0, playing=bool(self.queue))
+            self.set_position(0.0, playing=bool(self.queue))
 
     def remove(self, track_id: str) -> None:
         pos = self._find(track_id)
         if pos is None:
             return
-        self.queue.pop(pos)
+        track = self.queue.pop(pos)
         if pos == 0:
+            self._add_history(track)
             self.set_position(0.0, playing=bool(self.queue))
 
     def move(self, track_id: str, to: Any) -> None:
@@ -96,8 +123,14 @@ class Room:
 
     def clear_queue(self) -> None:
         """ล้างคิวเพลงทั้งหมดในห้อง"""
+        if self.queue:
+            self._add_history(self.queue[0])
         self.queue.clear()
         self.set_position(0.0, playing=False)
+
+    def set_repeat_mode(self, mode: Any) -> None:
+        if mode in {"off", "all", "one"}:
+            self.repeat_mode = str(mode)
 
     def set_duration(self, video_id: str, seconds: Any) -> None:
         """โฮสต์รายงานความยาวเพลง เพราะเครื่องรีโมทไม่มี player ของตัวเอง"""
@@ -119,6 +152,8 @@ class Room:
         return {
             "code": self.code,
             "queue": self.queue,
+            "history": self.history[:15],
+            "repeatMode": self.repeat_mode,
             "playing": self.playing,
             "position": round(self.position(), 3),
             "openControl": self.open_control,

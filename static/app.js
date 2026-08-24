@@ -246,8 +246,14 @@
 
   function createPlayer() {
     if (player || !ytApiReady) return;
-    const mount = document.createElement("div");
-    $("playerStage").appendChild(mount);
+    const stage = $("playerStage");
+    if (!stage) return;
+    let mount = $("ytMount");
+    if (!mount) {
+      mount = document.createElement("div");
+      mount.id = "ytMount";
+      stage.appendChild(mount);
+    }
     player = new YT.Player(mount, {
       height: "100%",
       width: "100%",
@@ -294,8 +300,9 @@
     playerReady = false;
     loadedVideoId = null;
     blockedTicks = 0;
-    $("playerStage").innerHTML = "";
-    $("unblockBtn").hidden = true;
+    const mount = $("ytMount");
+    if (mount) mount.remove();
+    if ($("unblockBtn")) $("unblockBtn").hidden = true;
   }
 
   function applyRole() {
@@ -303,9 +310,10 @@
     if (nowHost === isHost) return;
     const firstTime = isHost === null;
     isHost = nowHost;
-    $("playerBox").hidden = !isHost;
-    $("remoteBox").hidden = isHost;
-    $("claimBtn").hidden = isHost;
+    const remoteOverlay = $("remoteOverlay");
+    if (remoteOverlay) remoteOverlay.hidden = isHost;
+    const claimBtn = $("claimBtn");
+    if (claimBtn) claimBtn.hidden = isHost;
     if (isHost) {
       wantPlayer = true;
       createPlayer();
@@ -365,7 +373,8 @@
   }
 
   function badge(text, kind) {
-    const el = $("syncBadge");
+    const el = $("syncBadge") || $("roleBadge");
+    if (!el) return;
     el.textContent = text;
     el.className = "badge " + (kind || "");
   }
@@ -403,10 +412,10 @@
     if (state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
       player.playVideo();
       // สั่งเล่นแล้วยังไม่ขยับสองรอบติด = เบราว์เซอร์บล็อกอยู่ ต้องให้ผู้ใช้กดเอง
-      if (++blockedTicks >= 2) $("unblockBtn").hidden = false;
+      if (++blockedTicks >= 2 && $("unblockBtn")) $("unblockBtn").hidden = false;
     } else {
       blockedTicks = 0;
-      $("unblockBtn").hidden = true;
+      if ($("unblockBtn")) $("unblockBtn").hidden = true;
     }
     if (!state.playing && ps === YT.PlayerState.PLAYING) player.pauseVideo();
   }
@@ -439,6 +448,29 @@
     $("ambient").style.backgroundImage = art ? "url(" + art + ")" : "";
     $("app").classList[state.playing && track ? "add" : "remove"]("is-playing");
 
+    const vol = wantedVolume();
+    const muteBtn = $("muteBtn");
+    if (muteBtn) {
+      muteBtn.textContent = vol === 0 ? "🔇" : "🔊";
+      muteBtn.classList[vol === 0 ? "add" : "remove"]("is-muted");
+    }
+
+    const rMode = state.repeatMode || "off";
+    const rBtn = $("repeatBtn");
+    if (rBtn) {
+      if (rMode === "one") {
+        rBtn.textContent = "🔂 วนซ้ำเพลงนี้";
+        rBtn.className = "ghost small is-repeat-one";
+      } else if (rMode === "all") {
+        rBtn.textContent = "🔁 วนซ้ำคิว";
+        rBtn.className = "ghost small is-repeat-all";
+      } else {
+        rBtn.textContent = "➡️ ไม่ซ้ำ";
+        rBtn.className = "ghost small";
+      }
+      rBtn.disabled = !canControl;
+    }
+
     if (!draggingVolume) {
       const shown = wantedVolume();
       $("volume").value = shown;
@@ -451,6 +483,7 @@
 
     // ระหว่างลากอยู่ ห้ามวาดคิวใหม่ ไม่งั้น DOM ที่กำลังลากหายกลางทาง
     if (!dragState) renderQueue();
+    renderHistory();
 
     const listeners = $("listeners");
     listeners.innerHTML = "";
@@ -509,6 +542,32 @@
     button.title = title;
     button.textContent = label;
     return button;
+  }
+
+  function renderHistory() {
+    const list = $("historyList");
+    if (!list || !state) return;
+    const history = state.history || [];
+    $("historyCount").textContent = "(" + history.length + ")";
+    list.innerHTML = "";
+    if (!history.length) return;
+    history.forEach((t) => {
+      const li = document.createElement("li");
+      const title = document.createElement("span");
+      title.className = "title";
+      title.textContent = t.title;
+
+      const btn = document.createElement("button");
+      btn.className = "ghost small";
+      btn.textContent = "+ เล่นอีกครั้ง";
+      btn.addEventListener("click", () => {
+        send({ type: "add", url: t.videoId });
+        toast("เพิ่ม “" + t.title + "” เข้าคิวอีกครั้งแล้ว");
+      });
+
+      li.append(title, btn);
+      list.appendChild(li);
+    });
   }
 
   function tick() {
@@ -599,26 +658,31 @@
     startRoomPolling();
   }
 
+  function on(id, evt, fn) {
+    const el = $(id);
+    if (el) el.addEventListener(evt, fn);
+  }
+
   // ---------- events ----------
-  $("roomList").addEventListener("click", (e) => {
+  on("roomList", "click", (e) => {
     const card = e.target.closest(".room-card");
     if (card) joinRoom(card.dataset.code);
   });
 
-  $("newRoomBtn").addEventListener("click", async () => {
+  on("newRoomBtn", "click", async () => {
     const data = await (await fetch("/api/new-room")).json();
     joinRoom(data.code);
   });
 
-  $("leaveBtn").addEventListener("click", leaveRoom);
-  $("addAnywayBtn").addEventListener("click", () => {
+  on("leaveBtn", "click", leaveRoom);
+  on("addAnywayBtn", "click", () => {
     if (rejectedUrl) send({ type: "add", url: rejectedUrl, force: true });
     hideAddNotice();
   });
-  $("dismissNoticeBtn").addEventListener("click", hideAddNotice);
-  $("claimBtn").addEventListener("click", () => send({ type: "claimHost" }));
+  on("dismissNoticeBtn", "click", hideAddNotice);
+  on("claimBtn", "click", () => send({ type: "claimHost" }));
 
-  $("copyLinkBtn").addEventListener("click", async () => {
+  on("copyLinkBtn", "click", async () => {
     try {
       await navigator.clipboard.writeText(location.origin + "/#" + roomCode);
       toast("คัดลอกลิงก์ห้องแล้ว ส่งให้เพื่อนได้เลย");
@@ -627,17 +691,60 @@
     }
   });
 
-  $("playBtn").addEventListener("click", () => {
+  on("playBtn", "click", () => {
     if (playerReady && wantedVolume() > 0 && player.isMuted && player.isMuted()) player.unMute();
     send({ type: state && state.playing ? "pause" : "play" });
   });
-  $("nextBtn").addEventListener("click", () => send({ type: "next" }));
-  $("prevBtn").addEventListener("click", () => send({ type: "seek", position: 0 }));
-  $("shuffleBtn").addEventListener("click", () => send({ type: "shuffle" }));
-  $("clearQueueBtn").addEventListener("click", () => {
+  on("nextBtn", "click", () => send({ type: "next" }));
+  on("prevBtn", "click", () => send({ type: "seek", position: 0 }));
+  on("shuffleBtn", "click", () => send({ type: "shuffle" }));
+  on("repeatBtn", "click", () => {
+    if (!state) return;
+    const cur = state.repeatMode || "off";
+    const next = cur === "off" ? "all" : (cur === "all" ? "one" : "off");
+    send({ type: "setRepeatMode", mode: next });
+  });
+  on("clearQueueBtn", "click", () => {
     if (!state || !state.queue || state.queue.length === 0) return;
     if (confirm("คุณต้องการล้างคิวเพลงทั้งหมดในห้องนี้ใช่หรือไม่?")) {
       send({ type: "clearQueue" });
+    }
+  });
+
+  let lastNonZeroVolume = 70;
+  function toggleMute() {
+    const cur = wantedVolume();
+    if (cur > 0) {
+      lastNonZeroVolume = cur;
+      applyVolume(0);
+      sendVolume(0, true);
+    } else {
+      const restore = lastNonZeroVolume || 70;
+      applyVolume(restore);
+      sendVolume(restore, true);
+    }
+  }
+
+  on("muteBtn", "click", toggleMute);
+
+  on("toggleHistoryBtn", "click", () => {
+    const list = $("historyList");
+    if (list) list.hidden = !list.hidden;
+  });
+
+  let liveSearchTimer = null;
+  $("urlInput").addEventListener("input", (e) => {
+    const text = e.target.value.trim();
+    clearTimeout(liveSearchTimer);
+    if (!text) {
+      $("searchPanel").hidden = true;
+      return;
+    }
+    if (looksLikeLink(text)) return;
+    if (text.length >= 2) {
+      liveSearchTimer = setTimeout(() => {
+        doSearch(text);
+      }, 320);
     }
   });
 
@@ -793,6 +900,41 @@
     if (!duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     send({ type: "seek", position: ((e.clientX - rect.left) / rect.width) * duration });
+  });
+
+  // ---------- คีย์บอร์ดลัด (Keyboard Shortcuts) ----------
+  document.addEventListener("keydown", (e) => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    const key = e.key;
+    if (key === " " || key === "k" || key === "K") {
+      e.preventDefault();
+      $("playBtn").click();
+    } else if (key === "m" || key === "M") {
+      e.preventDefault();
+      toggleMute();
+    } else if (key === "n" || key === "N") {
+      e.preventDefault();
+      $("nextBtn").click();
+    } else if (key === "r" || key === "R") {
+      e.preventDefault();
+      $("repeatBtn").click();
+    } else if (key === "s" || key === "S") {
+      e.preventDefault();
+      $("shuffleBtn").click();
+    } else if (key === "ArrowUp") {
+      e.preventDefault();
+      const newVol = Math.min(100, wantedVolume() + 5);
+      applyVolume(newVol);
+      sendVolume(newVol, true);
+    } else if (key === "ArrowDown") {
+      e.preventDefault();
+      const newVol = Math.max(0, wantedVolume() - 5);
+      applyVolume(newVol);
+      sendVolume(newVol, true);
+    }
   });
 
   // ---------- init ----------
