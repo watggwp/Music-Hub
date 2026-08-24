@@ -1,4 +1,4 @@
-"""SynHub Music — ระบบเปิดเพลงพร้อมกัน เสียงออกที่เครื่องโฮสต์ เครื่องอื่นเป็นรีโมท"""
+"""SynTech Music — ระบบเปิดเพลงพร้อมกัน เสียงออกที่เครื่องโฮสต์ เครื่องอื่นเป็นรีโมท"""
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +36,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="SynHub Music", lifespan=lifespan)
+app = FastAPI(title="SynTech Music", lifespan=lifespan)
 rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
 

@@ -1,4 +1,4 @@
-/* SynHub Music — ฝั่งไคลเอนต์
+/* SynTech Music — ฝั่งไคลเอนต์
    โฮสต์ = เครื่องที่มีเสียง (โหลด YouTube player จริง)
    เครื่องอื่น = รีโมท (ไม่โหลด player เลย จึงไม่มีเสียงซ้อนและไม่กินเน็ต) */
 (() => {
@@ -603,7 +603,7 @@
 
   function joinRoom(code) {
     myName = ($("nameInput").value || "").trim() || "ผู้ฟัง";
-    localStorage.setItem("synhub.name", myName);
+    localStorage.setItem("syntech.name", myName);
     roomCode = code.toUpperCase();
     leaving = false;
     stopRoomPolling();
@@ -820,7 +820,7 @@
   });
 
   // ---------- init ----------
-  $("nameInput").value = localStorage.getItem("synhub.name") || "";
+  $("nameInput").value = localStorage.getItem("syntech.name") || localStorage.getItem("synhub.name") || "";
   setInterval(sync, 2000);          // แก้ drift ทุก 2 วินาที
   setInterval(tick, 250);           // อัปเดตแถบเวลา
   setInterval(measureClock, 15000); // ปรับนาฬิกาให้ตรงกับเซิร์ฟเวอร์

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎵 SynHub Music
+# 🎵 SynTech Music
 
 **เปิดเพลง YouTube พร้อมกันหลายเครื่อง — เสียงออกที่เครื่องเดียว ทุกคนเป็นรีโมท**
 
