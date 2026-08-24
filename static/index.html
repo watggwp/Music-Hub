@@ -13,7 +13,10 @@
 <body>
 
 <!-- แสงพื้นหลัง เคลื่อนช้า ๆ ไม่รับการคลิก -->
-<div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="aurora" aria-hidden="true">
+  <div class="bg-grid"></div>
+  <span></span><span></span><span></span>
+</div>
 
 <!-- ================= หน้าเข้าห้อง ================= -->
 <div id="gate" class="gate">
@@ -57,7 +60,7 @@
       <button type="button" id="leaveBtn" class="ghost small danger">ออกจากห้อง</button>
     </div>
     <div class="status">
-      <span id="syncBadge" class="badge">กำลังเชื่อมต่อ…</span>
+      <span id="syncBadge" class="badge"><i class="status-dot"></i>กำลังเชื่อมต่อ…</span>
       <span id="roleBadge" class="badge"></span>
       <button type="button" id="claimBtn" class="ghost small" hidden>ย้ายลำโพงมาเครื่องนี้</button>
     </div>
@@ -82,7 +85,7 @@
         </div>
 
         <div class="now-row">
-          <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
           <div id="nowTitle" class="now-title">ยังไม่มีเพลงในคิว</div>
           <a id="ytLink" class="ghost small yt" target="_blank" rel="noopener" hidden>เปิดบน YouTube ↗</a>
         </div>
