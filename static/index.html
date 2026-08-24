@@ -101,12 +101,13 @@
           <span id="timeLabel" class="mono">0:00 / 0:00</span>
           <button type="button" id="unblockBtn" class="warnbtn" hidden>เบราว์เซอร์บล็อกเสียง — แตะเพื่อเล่น</button>
           <span class="spacer"></span>
-          <label class="vol">
-            <span aria-hidden="true">🔊</span>
-            <input id="volume" type="range" min="0" max="100" value="70" aria-label="ระดับเสียงของลำโพง" />
-            <span id="volLabel" class="mono">70</span>
-            <span id="volActual" class="warnbtn tiny" hidden></span>
-          </label>
+          <div class="vol-wrap">
+            <label class="vol">
+              <span aria-hidden="true">🔊</span>
+              <input id="volume" type="range" min="0" max="100" value="70" aria-label="ระดับเสียงของลำโพง" />
+              <span id="volLabel" class="mono">70</span>
+            </label>
+          </div>
         </div>
 
         <p class="hint">แถบเสียงคุมลำโพงของเครื่องโฮสต์ ปรับจากเครื่องไหนก็ได้ · คลิกบนแถบเวลาเพื่อเลื่อนเพลง</p>
@@ -165,6 +166,6 @@
 </main>
 
 <script src="https://www.youtube.com/iframe_api"></script>
-<script src="/static/app.js?v=15"></script>
+<script src="/static/app.js?v=16"></script>
 </body>
 </html>

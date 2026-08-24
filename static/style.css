@@ -650,9 +650,10 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
 #app.is-playing .controls #playBtn { box-shadow: 0 0 0 0 rgba(46, 157, 104, .55), 0 10px 30px -14px rgba(244, 188, 18, .9); animation: pulse 2.6s ease-out infinite; }
 @keyframes pulse { 70%, 100% { box-shadow: 0 0 0 16px rgba(46, 157, 104, 0), 0 10px 30px -14px rgba(244, 188, 18, .9); } }
 
-.vol { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .82rem; }
-.vol input { flex: 1; min-width: 90px; }
-#volLabel { min-width: 2.1em; text-align: right; }
+.vol-wrap { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+.vol { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .82rem; flex-shrink: 0; }
+.vol input { width: 130px; flex-shrink: 0; }
+#volLabel { display: inline-block; width: 2.5rem; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* ============ 10. แถบข้าง ============ */
 .panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; min-width: 0; }
@@ -840,7 +841,9 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
   .controls #playBtn { width: 60px; height: 60px; }
   #timeLabel { margin-left: .3rem; font-size: .82rem; }
   #unblockBtn { flex-basis: 100%; }
-  .vol { flex-basis: 100%; order: 5; margin-top: .2rem; }
+  .vol-wrap { flex-basis: 100%; order: 5; margin-top: .2rem; justify-content: center; flex-wrap: wrap; }
+  .vol { flex-shrink: 1; min-width: 0; }
+  .vol input { width: 140px; }
   .now-row { margin-top: .85rem; }
   header { padding: .6rem .8rem; }
   header .label { display: none; }

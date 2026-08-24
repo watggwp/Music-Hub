@@ -50,8 +50,6 @@
 
   let volumeConfirmTimer = null;
   let volumeConfirmValue = null;
-  let nudgeTimer = null;
-  let lastNudged = null;       // ค่าที่สะกิดไปแล้ว กันสะกิดซ้ำทุกรอบ sync
   let localVolume = null;      // ค่าที่เครื่องนี้เพิ่งสั่ง รอเซิร์ฟเวอร์ยืนยัน
   let localVolumeAt = 0;
   let localVolumeSeq = -1;     // ค่า volumeSeq ตอนที่เครื่องนี้สั่ง
@@ -81,12 +79,9 @@
       if (player.isMuted && player.isMuted()) player.unMute();
       player.setVolume(value);
     }
-    // สะกิดทุกครั้งที่ค่าเปลี่ยน รวมค่าแรกด้วย เพราะบนเครื่องที่มีอาการนี้
-    // ค่าเริ่มต้นก็ไม่ถูกเอาไปใช้กับเสียงจริงเหมือนกัน
-    scheduleNudge(value);
+    reportVolume(value);
 
     // unMute อาจคืนค่าเสียงเดิมที่ YouTube จำไว้มาทับของเรา จึงต้องอ่านกลับมาตรวจแล้วตอกซ้ำ
-    // ถ้ามีนัดตรวจค่าเดิมค้างอยู่แล้ว อย่าตั้งใหม่ ไม่งั้น sync รอบถัดไปจะเลื่อนการตรวจออกไปเรื่อย ๆ
     if (volumeConfirmTimer === null || volumeConfirmValue !== value) {
       clearTimeout(volumeConfirmTimer);
       volumeConfirmValue = value;
@@ -95,33 +90,6 @@
         confirmVolume(value);
       }, 300);
     }
-  }
-
-  // player เก็บค่าที่สั่งไว้ แต่บางเครื่องไม่เอาไปใช้กับเสียงจริงจนกว่าจะ "เริ่มเล่นใหม่"
-  // (อาการคือต้องกดหยุดแล้วกดเล่นเองทุกครั้ง) จึงหยุด-เล่นใหม่ให้อัตโนมัติในช่วงสั้น ๆ
-  // ตำแหน่งเพลงไม่หลุดเพราะเซิร์ฟเวอร์เป็นเจ้าของเวลา และช่องว่าง 80ms ไม่ถึงเกณฑ์ seek แก้ drift
-  function nudgeVolume(value) {
-    if (!playerReady || value <= 0) return;
-    if (player.isMuted && player.isMuted()) player.unMute();
-    player.setVolume(value);
-    if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;  // หยุดอยู่ ค่าจะถูกใช้ตอนกดเล่นเอง
-    player.pauseVideo();
-    setTimeout(() => {
-      if (!playerReady) return;
-      player.setVolume(value);
-      player.playVideo();
-      reportVolume(value);
-    }, 80);
-  }
-
-  function scheduleNudge(value) {
-    if (value === lastNudged) return;   // ค่าเดิม ไม่ต้องสะกิดซ้ำ
-    clearTimeout(nudgeTimer);
-    nudgeTimer = setTimeout(() => {
-      lastNudged = value;
-      nudgeVolume(value);
-      reportVolume(value);
-    }, 200);
   }
 
   function confirmVolume(value) {
@@ -149,23 +117,9 @@
     return muted || Math.abs(Math.round(player.getVolume() || 0) - value) > 1;
   }
 
-  // โชว์ให้เห็นเมื่อ player ไม่ยอมรับค่าที่สั่ง เพื่อแยกว่าปัญหาอยู่ที่ระบบเราหรือที่ player
   function reportVolume(wanted) {
     const el = $("volActual");
-    if (!isHost || !playerReady || !player.getVolume) { el.hidden = true; return; }
-    const actual = Math.round(player.getVolume() || 0);
-    const muted = !!(player.isMuted && player.isMuted());
-    el.hidden = false;
-    if (volumeOff(wanted)) {
-      el.textContent = "player ยังไม่เงียบ (" + actual + ")";
-      el.className = "warnbtn tiny";
-    } else if (volumeWrong(wanted)) {
-      el.textContent = muted ? "player ยัง mute อยู่" : "player รายงาน " + actual;
-      el.className = "warnbtn tiny";
-    } else {
-      el.textContent = "player " + (muted ? "mute" : actual);   // ตรงกันแล้ว โชว์ไว้ให้ตรวจสอบได้
-      el.className = "okbadge tiny";
-    }
+    if (el) el.hidden = true;
   }
 
   // เติมสีรางแถบเสียงให้เห็นระดับที่เลือก (สภาพแวดล้อมทดสอบไม่มี setProperty จึงเช็คก่อน)
