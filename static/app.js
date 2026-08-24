@@ -275,7 +275,7 @@
   function destroyPlayer() {
     wantPlayer = false;
     if (player) {
-      try { player.destroy(); } catch (_) {}
+      try { player.destroy(); } catch (_) { }
     }
     player = null;
     playerReady = false;
@@ -338,7 +338,7 @@
         showAddNotice(msg.message, msg.url);
       } else if (msg.type === "altResults") {
         showResults("“" + msg.blockedTitle + "” ฝังไม่ได้ — เวอร์ชันเพลงเดียวกันที่เล่นได้",
-                    msg.results);
+          msg.results);
       }
     };
   }
@@ -410,6 +410,9 @@
     $("playBtn").textContent = state.playing ? "⏸" : "▶";
     $("queueCount").textContent = "(" + state.queue.length + ")";
     $("listenerCount").textContent = "(" + state.listeners.length + ")";
+    const canControl = isHost || state.openControl;
+    $("shuffleBtn").disabled = !canControl || state.queue.length <= 1;
+    $("clearQueueBtn").disabled = !canControl || state.queue.length === 0;
     $("roleBadge").textContent = isHost ? "🔊 เครื่องนี้คือลำโพง" : "🎛 รีโมท (ไม่มีเสียง)";
     $("roleBadge").className = "badge " + (isHost ? "ok" : "");
 
@@ -618,6 +621,12 @@
   $("nextBtn").addEventListener("click", () => send({ type: "next" }));
   $("prevBtn").addEventListener("click", () => send({ type: "seek", position: 0 }));
   $("shuffleBtn").addEventListener("click", () => send({ type: "shuffle" }));
+  $("clearQueueBtn").addEventListener("click", () => {
+    if (!state || !state.queue || state.queue.length === 0) return;
+    if (confirm("คุณต้องการล้างคิวเพลงทั้งหมดในห้องนี้ใช่หรือไม่?")) {
+      send({ type: "clearQueue" });
+    }
+  });
 
   $("addForm").addEventListener("submit", (e) => {
     e.preventDefault();

@@ -41,7 +41,7 @@ rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
 
 CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
-                   "shuffle", "setVolume"}
+                   "shuffle", "setVolume", "clearQueue"}
 
 
 def now_ms() -> int:
@@ -356,8 +356,13 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             room.set_volume(message.get("value"))
         elif kind == "shuffle":
             room.shuffle_rest()
+        elif kind == "clearQueue":
+            room.clear_queue()
+            who = room.names.get(client_id, "ผู้ฟัง")
 
     await broadcast(room)
+    if kind == "clearQueue":
+        await notify(room, f"“{who}” ได้ล้างคิวเพลงทั้งหมดแล้ว")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -17,7 +17,7 @@ class Room:
         self.queue: list[dict[str, Any]] = []   # queue[0] = กำลังเล่น
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
-        self.volume = 70                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
+        self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
         self.volume_seq = 0               # นับทุกครั้งที่มีคนสั่งเปลี่ยนเสียง
         self.host_id: str | None = None
         self.clients: dict[str, Any] = {}  # client_id -> WebSocket
@@ -93,6 +93,11 @@ class Room:
         rest = self.queue[1:]
         random.shuffle(rest)
         self.queue[1:] = rest
+
+    def clear_queue(self) -> None:
+        """ล้างคิวเพลงทั้งหมดในห้อง"""
+        self.queue.clear()
+        self.set_position(0.0, playing=False)
 
     def set_duration(self, video_id: str, seconds: Any) -> None:
         """โฮสต์รายงานความยาวเพลง เพราะเครื่องรีโมทไม่มี player ของตัวเอง"""

@@ -658,6 +658,16 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
 /* ============ 10. แถบข้าง ============ */
 .panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; min-width: 0; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.panel-acts { display: flex; align-items: center; gap: .35rem; }
+.ghost.small.danger {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, .25);
+}
+.ghost.small.danger:hover:not(:disabled) {
+  background: rgba(255, 107, 107, .15);
+  border-color: rgba(255, 107, 107, .5);
+  color: #ff8787;
+}
 
 .add { display: flex; gap: .5rem; }
 .add input { flex: 1; min-width: 0; }
@@ -812,38 +822,38 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 
-/* ============ 12. ขนาดหน้าจอ ============ */
+/* ============ 12. ขนาดหน้าจอ (Responsive Breakpoints) ============ */
 
-/* จอกว้าง: สองคอลัมน์เลื่อนแยกกัน ไม่ต้องเลื่อนทั้งหน้า */
-@media (min-width: 981px) {
+/* 12.1. จอกว้าง / เดสก์ท็อป (Large Displays >= 1025px) */
+@media (min-width: 1025px) {
   #app { height: 100dvh; }
-  .stage { overflow: hidden; align-items: stretch; }
+  .stage { overflow: hidden; align-items: stretch; grid-template-columns: minmax(0, 1fr) clamp(330px, 28vw, 420px); }
   .stage > * { max-height: 100%; overflow: auto; }
   .player-wrap { display: flex; }
   .player-inner { width: 100%; margin-block: auto; }
-  /* โหมดรีโมทมีที่เหลือเยอะ ขยายปกเพลงให้เต็มตาขึ้น */
   .remote { padding: 1.3rem; gap: 1.3rem; }
   .remote-art { width: clamp(160px, 38%, 300px); }
   .queue, .search-list, .room-list { max-height: none; }
 }
 
-/* จอกลาง: เรียงลงมาเป็นคอลัมน์เดียว */
-@media (max-width: 980px) {
-  .stage { grid-template-columns: minmax(0, 1fr); max-width: 760px; }
-  .queue { max-height: min(50vh, 420px); }
+/* 12.2. จอกลาง / แท็บเล็ต (Tablets & Medium Displays 641px - 1024px) */
+@media (max-width: 1024px) {
+  .stage { grid-template-columns: minmax(0, 1fr); max-width: 800px; }
+  .queue { max-height: min(48vh, 400px); }
 }
 
-/* มือถือ: ปุ่มใหญ่ขึ้น เสียงขึ้นบรรทัดเต็ม */
-@media (max-width: 620px) {
+/* 12.3. มือถือ (Mobile Portrait <= 640px) */
+@media (max-width: 640px) {
+  .stage { padding: .75rem; gap: .75rem; }
   .controls { justify-content: center; gap: .45rem; }
   .controls .spacer { display: none; }
-  .controls .tbtn { width: 48px; height: 48px; }
-  .controls #playBtn { width: 60px; height: 60px; }
-  #timeLabel { margin-left: .3rem; font-size: .82rem; }
+  .controls .tbtn { width: 48px; height: 48px; min-width: 48px; }
+  .controls #playBtn { width: 60px; height: 60px; min-width: 60px; }
+  #timeLabel { font-size: .82rem; }
   #unblockBtn { flex-basis: 100%; }
   .vol-wrap { flex-basis: 100%; order: 5; margin-top: .2rem; justify-content: center; flex-wrap: wrap; }
   .vol { flex-shrink: 1; min-width: 0; }
-  .vol input { width: 140px; }
+  .vol input { width: 150px; max-width: 60vw; }
   .now-row { margin-top: .85rem; }
   header { padding: .6rem .8rem; }
   header .label { display: none; }
@@ -853,18 +863,27 @@ a.yt:hover { border-color: var(--accent); color: var(--text); background: var(--
   .listeners { gap: .35rem; }
 }
 
-/* มือถือแนวนอน / จอเตี้ย: ลดที่ว่างไม่ให้ตัวเล่นล้นจอ */
-@media (max-height: 560px) and (min-width: 621px) {
-  #playerStage { width: min(100%, calc(52dvh * 16 / 9)); }
-  .now-row { margin: .6rem 0 .4rem; }
-  .controls { margin-top: .5rem; }
+/* 12.4. มือถือแนวนอน / จอเตี้ย (Mobile Landscape / Short Heights <= 600px) */
+@media (max-height: 600px) {
+  #playerStage { width: min(100%, calc(48dvh * 16 / 9)); }
+  .now-row { margin: .5rem 0 .35rem; }
+  .controls { margin-top: .4rem; }
+  .controls .tbtn { width: 42px; height: 42px; }
+  .controls #playBtn { width: 50px; height: 50px; }
+  .gate-card { padding: 1rem; }
+  .brand-logo-img { height: 36px; }
 }
 
-/* จอเล็กมาก 320px */
+/* 12.5. จอเล็กมาก (Small Smartphones <= 360px & Foldables) */
 @media (max-width: 360px) {
-  .head-left { gap: .35rem; }
+  .head-left { gap: .3rem; flex-wrap: wrap; }
+  .head-logo-img { height: 22px; }
+  .music-pill.sm { display: none; }
   .add { flex-wrap: wrap; }
   .add button { width: 100%; }
+  .gate-card { padding: .95rem; }
+  .brand-logo-img { height: 34px; }
+  .music-pill { font-size: .65rem; padding: .15rem .45rem; }
 }
 
 /* ============ 13. เคารพการตั้งค่าลดการเคลื่อนไหว ============ */

@@ -26,7 +26,7 @@ SEARCH_TTL = 300              # เก็บผลค้นหาไว้ใช
 SEARCH_CACHE_MAX = 60
 
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
-_PLAYLIST_ID = re.compile(r"^(?:PL|UU|LL|FL|OLAK)[A-Za-z0-9_-]{10,}$")
+_PLAYLIST_ID = re.compile(r"^(?:PL|RD|OLAK|UU|LL|FL|TL|VL|CL)[A-Za-z0-9_-]{8,}$")
 _VIDEO_PATTERNS = [
     re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})"),
     re.compile(r"youtu\.be/([A-Za-z0-9_-]{11})"),
@@ -38,26 +38,38 @@ _VIDEO_PATTERNS = [
 def parse_target(raw: str) -> dict | None:
     """คืน {"kind": "video"|"playlist", "id": ...}
 
-    ลิงก์ที่มีทั้ง v= และ list= ถือว่าผู้ใช้ต้องการคลิปนั้นคลิปเดียว
-    ต้องเป็น /playlist?list=... หรือมีแต่ list= เท่านั้นจึงนับเป็น playlist ทั้งชุด
+    หากลิงก์เป็น Playlist ปกติ (PL..., OLAK...) จะดึงทั้งชุด
+    หากเป็น YouTube Mix (RD...) ร่วมกับลิงก์ watch?v= จะดึงเฉพาะคลิปเพลงที่กำลังเปิดอยู่
     """
     text = (raw or "").strip()
     if not text:
         return None
 
-    if _VIDEO_ID.match(text):
-        return {"kind": "video", "id": text}
+    found_v = None
+    for pattern in _VIDEO_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            found_v = m.group(1)
+            break
+
+    found_list = re.search(r"[?&]list=([A-Za-z0-9_-]+)", text)
+    if found_list:
+        list_id = found_list.group(1)
+        # ถ้าพารามิเตอร์เป็น YouTube Mix (RD...) และมีรหัสวิดีโอ v= ติดมาด้วย ให้ดึงคลิปเพลงนั้นคลิปเดียว
+        if list_id.startswith("RD") and found_v:
+            return {"kind": "video", "id": found_v}
+        if _PLAYLIST_ID.match(list_id):
+            return {"kind": "playlist", "id": list_id}
+
     if _PLAYLIST_ID.match(text):
         return {"kind": "playlist", "id": text}
 
-    for pattern in _VIDEO_PATTERNS:
-        found = pattern.search(text)
-        if found:
-            return {"kind": "video", "id": found.group(1)}
+    if _VIDEO_ID.match(text):
+        return {"kind": "video", "id": text}
 
-    found = re.search(r"[?&]list=([A-Za-z0-9_-]+)", text)
-    if found and _PLAYLIST_ID.match(found.group(1)):
-        return {"kind": "playlist", "id": found.group(1)}
+    if found_v:
+        return {"kind": "video", "id": found_v}
+
     return None
 
 
@@ -265,20 +277,36 @@ async def find_playable_alternatives(
 
 # ---------------- อ่าน playlist ----------------
 def _playlist_ids_sync(playlist_id: str) -> list[str]:
-    request = urllib.request.Request(
-        "https://www.youtube.com/playlist?list=" + urllib.parse.quote(playlist_id),
-        headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"},
-    )
-    with urllib.request.urlopen(request, timeout=15) as resp:
-        html = resp.read().decode("utf-8", "replace")
+    seed = playlist_id[2:] if playlist_id.startswith("RD") and len(playlist_id) > 2 and _VIDEO_ID.match(playlist_id[2:]) else ""
+    urls = []
+    if seed:
+        urls.append(f"https://www.youtube.com/watch?v={seed}&list={urllib.parse.quote(playlist_id)}")
+    urls.append(f"https://www.youtube.com/playlist?list={urllib.parse.quote(playlist_id)}")
 
-    # หน้า playlist ปัจจุบันเก็บรายการเป็น lockupViewModel -> contentId
-    found = re.findall(
-        r'"contentId":"([A-Za-z0-9_-]{11})","contentType":"LOCKUP_CONTENT_TYPE_VIDEO"', html
-    )
-    if not found:  # เผื่อ YouTube เปลี่ยนโครงสร้างกลับไปใช้ตัวเดิม
-        found = re.findall(r'"playlistVideoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"', html)
-    return list(dict.fromkeys(found))[:PLAYLIST_LIMIT]
+    for url in urls:
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": UA, "Accept-Language": "th,en-US;q=0.9,en;q=0.8"},
+            )
+            with urllib.request.urlopen(request, timeout=12) as resp:
+                html = resp.read().decode("utf-8", "replace")
+
+            found = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
+            if not found:
+                found = re.findall(r'"contentId":"([A-Za-z0-9_-]{11})"', html)
+            if not found:
+                found = re.findall(r'"playlistVideoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"', html)
+            if not found:
+                found = re.findall(r'/watch\?v=([A-Za-z0-9_-]{11})', html)
+
+            vids = list(dict.fromkeys(found))
+            if vids:
+                return vids[:PLAYLIST_LIMIT]
+        except Exception:
+            continue
+
+    return []
 
 
 async def playlist_video_ids(playlist_id: str) -> list[str]:

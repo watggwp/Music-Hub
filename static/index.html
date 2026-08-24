@@ -144,7 +144,10 @@
       <div class="panel">
         <div class="panel-head">
           <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
-          <button type="button" id="shuffleBtn" class="ghost small">🔀 สุ่ม</button>
+          <div class="panel-acts">
+            <button type="button" id="shuffleBtn" class="ghost small">🔀 สุ่ม</button>
+            <button type="button" id="clearQueueBtn" class="ghost small danger" title="ล้างเพลงทั้งหมดในคิว">🗑 ล้างคิว</button>
+          </div>
         </div>
         <ol id="queue" class="queue"></ol>
         <p class="hint">ลากที่ ≡ เพื่อย้ายไปตำแหน่งไหนก็ได้ · ▶ เล่นเพลงนั้นเลย · ✕ เอาออกจากคิว</p>
@@ -166,6 +169,6 @@
 </main>
 
 <script src="https://www.youtube.com/iframe_api"></script>
-<script src="/static/app.js?v=16"></script>
+<script src="/static/app.js?v=17"></script>
 </body>
 </html>
