@@ -173,18 +173,29 @@
     return text.length === 11 && [...text].every((ch) => ID_CHARS.includes(ch));
   }
 
+  let searchAbortController = null;
+
   async function doSearch(query) {
+    if (searchAbortController) {
+      searchAbortController.abort();
+    }
+    searchAbortController = new AbortController();
+
     $("searchPanel").hidden = false;
     $("searchTitle").textContent = "กำลังค้นหา “" + query + "” …";
     $("searchResults").innerHTML = "";
     let data;
     try {
-      data = await (await fetch("/api/search?q=" + encodeURIComponent(query))).json();
-    } catch (_) {
+      const resp = await fetch("/api/search?q=" + encodeURIComponent(query), {
+        signal: searchAbortController.signal
+      });
+      data = await resp.json();
+    } catch (err) {
+      if (err.name === "AbortError") return;
       $("searchTitle").textContent = "ค้นหาไม่สำเร็จ ลองอีกครั้ง";
       return;
     }
-    if (!data.results.length) {
+    if (!data.results || !data.results.length) {
       $("searchResults").innerHTML = "";
       $("searchTitle").textContent = data.message || "ไม่พบผลค้นหา";
       return;
@@ -258,9 +269,15 @@
       height: "100%",
       width: "100%",
       playerVars: {
-        controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1,
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        enablejsapi: 1,
+        modestbranding: 1,
+        rel: 0,
+        playsinline: 1,
         cc_load_policy: 0,
-        origin: location.origin,
+        iv_load_policy: 3,
       },
       events: {
         onReady: () => {
@@ -269,13 +286,20 @@
           sync();
         },
         onStateChange: (e) => {
-          // ทุกครั้งที่เริ่มเล่น player อาจกลับไป mute เอง (นโยบาย autoplay) ต้องปลดทันที
           if (e.data === YT.PlayerState.PLAYING) {
             if (state) applyVolume(wantedVolume());
-            if (player && player.unloadModule) {
-              try { player.unloadModule("captions"); } catch (_) {}
-              try { player.unloadModule("cc"); } catch (_) {}
-            }
+            // ปิดคำบรรยาย/ซับไตเติลให้อัตโนมัติโดยไม่ทำให้ตัวเล่นค้าง
+            try {
+              if (player && player.setOption) {
+                player.setOption("captions", "track", {});
+                player.setOption("cc", "track", {});
+              }
+            } catch (_) {}
+            try {
+              if (player && player.unloadModule) {
+                player.unloadModule("captions");
+              }
+            } catch (_) {}
           }
           if (e.data === YT.PlayerState.ENDED) {
             const track = currentTrack();
@@ -737,14 +761,15 @@
     const text = e.target.value.trim();
     clearTimeout(liveSearchTimer);
     if (!text) {
+      if (searchAbortController) searchAbortController.abort();
       $("searchPanel").hidden = true;
       return;
     }
     if (looksLikeLink(text)) return;
-    if (text.length >= 2) {
+    if (text.length >= 3) {
       liveSearchTimer = setTimeout(() => {
         doSearch(text);
-      }, 320);
+      }, 550);
     }
   });
 
