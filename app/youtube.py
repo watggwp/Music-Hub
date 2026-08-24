@@ -38,28 +38,16 @@ _VIDEO_PATTERNS = [
 def parse_target(raw: str) -> dict | None:
     """คืน {"kind": "video"|"playlist", "id": ...}
 
-    หากลิงก์เป็น Playlist ปกติ (PL..., OLAK...) จะดึงทั้งชุด
-    หากเป็น YouTube Mix (RD...) ร่วมกับลิงก์ watch?v= จะดึงเฉพาะคลิปเพลงที่กำลังเปิดอยู่
+    หากลิงก์มีพารามิเตอร์ list=... (รวมถึง YouTube Radio/Mix list=RD...) จะดึงเพลงทั้งชุดให้ทันที
     """
     text = (raw or "").strip()
     if not text:
         return None
 
-    found_v = None
-    for pattern in _VIDEO_PATTERNS:
-        m = pattern.search(text)
-        if m:
-            found_v = m.group(1)
-            break
-
+    # หากมีพารามิเตอร์ list= ให้ดึงทั้ง playlist / radio mix เป็นอันดับแรก
     found_list = re.search(r"[?&]list=([A-Za-z0-9_-]+)", text)
-    if found_list:
-        list_id = found_list.group(1)
-        # ถ้าพารามิเตอร์เป็น YouTube Mix (RD...) และมีรหัสวิดีโอ v= ติดมาด้วย ให้ดึงคลิปเพลงนั้นคลิปเดียว
-        if list_id.startswith("RD") and found_v:
-            return {"kind": "video", "id": found_v}
-        if _PLAYLIST_ID.match(list_id):
-            return {"kind": "playlist", "id": list_id}
+    if found_list and _PLAYLIST_ID.match(found_list.group(1)):
+        return {"kind": "playlist", "id": found_list.group(1)}
 
     if _PLAYLIST_ID.match(text):
         return {"kind": "playlist", "id": text}
@@ -67,8 +55,10 @@ def parse_target(raw: str) -> dict | None:
     if _VIDEO_ID.match(text):
         return {"kind": "video", "id": text}
 
-    if found_v:
-        return {"kind": "video", "id": found_v}
+    for pattern in _VIDEO_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return {"kind": "video", "id": m.group(1)}
 
     return None
 

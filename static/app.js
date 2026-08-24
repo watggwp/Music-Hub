@@ -224,11 +224,18 @@
     });
   }
 
-  function toast(msg) {
+  let toastTimer = null;
+
+  function toast(msg, duration = 4500) {
     const el = $("toast");
+    if (!el) return;
     el.textContent = msg;
     el.classList.add("show");
-    setTimeout(() => el.classList.remove("show"), 2600);
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastTimer = null;
+      el.classList.remove("show");
+    }, duration);
   }
 
   // ---------- YouTube player (สร้างเฉพาะเครื่องโฮสต์) ----------
@@ -246,6 +253,7 @@
       width: "100%",
       playerVars: {
         controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1,
+        cc_load_policy: 0,
         origin: location.origin,
       },
       events: {
@@ -256,8 +264,13 @@
         },
         onStateChange: (e) => {
           // ทุกครั้งที่เริ่มเล่น player อาจกลับไป mute เอง (นโยบาย autoplay) ต้องปลดทันที
-          // ไม่ต้องรอ sync รอบถัดไป 2 วินาที
-          if (e.data === YT.PlayerState.PLAYING && state) applyVolume(wantedVolume());
+          if (e.data === YT.PlayerState.PLAYING) {
+            if (state) applyVolume(wantedVolume());
+            if (player && player.unloadModule) {
+              try { player.unloadModule("captions"); } catch (_) {}
+              try { player.unloadModule("cc"); } catch (_) {}
+            }
+          }
           if (e.data === YT.PlayerState.ENDED) {
             const track = currentTrack();
             if (track) send({ type: "ended", videoId: track.videoId });
