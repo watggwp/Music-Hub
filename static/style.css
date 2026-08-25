@@ -829,7 +829,8 @@ aside {
   box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 1);
 }
 
-#playerStage iframe, #ytMount {
+#playerStage iframe,
+#ytMount {
   position: absolute;
   top: 0;
   left: 0;
