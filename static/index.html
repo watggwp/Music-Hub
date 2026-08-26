@@ -13,16 +13,10 @@
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="icon" href="/static/logo-mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://i.ytimg.com" />
-  <link rel="stylesheet" href="/static/style.css?v=21" />
+  <link rel="stylesheet" href="/static/style.css?v=25" />
 </head>
 
 <body>
-
-  <!-- แสงพื้นหลัง เคลื่อนช้า ๆ ไม่รับการคลิก -->
-  <div class="aurora" aria-hidden="true">
-    <div class="bg-grid"></div>
-    <span></span><span></span><span></span>
-  </div>
 
   <!-- ================= หน้าเข้าห้อง ================= -->
   <div id="gate" class="gate">
@@ -79,8 +73,6 @@
         <div class="player-inner">
           <!-- กรอบ YouTube player: แสดงเฉพาะโฮสต์, รีโมทจะเห็นเป็นปกเพลง -->
           <div id="playerStage" class="player-stage">
-            <div id="ambient" class="ambient" aria-hidden="true"></div>
-
             <!-- โหมดรีโมท: แสดงปกเพลงขนาดใหญ่ -->
             <div id="remoteOverlay" class="remote">
               <div class="remote-art">
@@ -203,7 +195,7 @@
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=26"></script>
+  <script src="/static/app.js?v=30"></script>
 </body>
 
 </html>

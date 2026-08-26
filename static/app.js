@@ -469,7 +469,6 @@
     const art = track ? "https://i.ytimg.com/vi/" + track.videoId + "/mqdefault.jpg" : "";
     $("remoteArt").src = art;
     $("remoteArt").hidden = !track;
-    $("ambient").style.backgroundImage = art ? "url(" + art + ")" : "";
     $("app").classList[state.playing && track ? "add" : "remove"]("is-playing");
 
     const vol = wantedVolume();
@@ -594,6 +593,9 @@
     });
   }
 
+  let lastTimeText = "";
+  let lastProgressPct = -1;
+
   function tick() {
     if (!state) return;
     const track = currentTrack();
@@ -601,8 +603,16 @@
       ? player.getDuration() || 0
       : (track && track.duration) || 0;
     const pos = duration ? Math.min(targetPosition(), duration) : targetPosition();
-    $("timeLabel").textContent = fmt(pos) + " / " + fmt(duration);
-    $("progress").style.width = duration ? Math.min(100, (pos / duration) * 100) + "%" : "0%";
+    const timeText = fmt(pos) + " / " + fmt(duration);
+    if (timeText !== lastTimeText) {
+      $("timeLabel").textContent = timeText;
+      lastTimeText = timeText;
+    }
+    const pct = duration ? Math.min(100, Math.round((pos / duration) * 1000) / 10) : 0;
+    if (pct !== lastProgressPct) {
+      $("progress").style.width = pct + "%";
+      lastProgressPct = pct;
+    }
   }
 
   // ---------- หน้าเลือกห้อง ----------

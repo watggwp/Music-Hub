@@ -62,11 +62,14 @@ html {
   text-size-adjust: 100%;
 }
 
+/* ============ 3. พื้นหลัง (Ultra Lightweight Cyber Dark) ============ */
 body {
   margin: 0;
   min-height: 100dvh;
   overflow-x: hidden;
-  background: var(--bg);
+  background:
+    radial-gradient(100% 70% at 50% -10%, #0d281c 0%, #060b08 70%),
+    #060b08;
   color: var(--text);
   font-family: "Sarabun", "Segoe UI", system-ui, -apple-system, sans-serif;
   line-height: 1.5;
@@ -108,80 +111,6 @@ body {
 :focus-visible {
   outline: none;
   box-shadow: var(--ring);
-}
-
-/* ============ 3. แสง aurora และ Cyber Grid เป็นฉากหลัง ============ */
-.aurora {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-  background:
-    radial-gradient(120% 90% at 50% -20%, #0d2b1e 0%, transparent 65%),
-    linear-gradient(180deg, var(--bg-soft), var(--bg) 75%);
-}
-
-.bg-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, rgba(46, 157, 104, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(46, 157, 104, 0.05) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 100%);
-  pointer-events: none;
-}
-
-.aurora span {
-  position: absolute;
-  width: 46vmax;
-  height: 46vmax;
-  border-radius: 50%;
-  filter: blur(95px);
-  opacity: .32;
-  will-change: transform;
-}
-
-.aurora span:nth-child(1) {
-  background: #1e6e47;
-  top: -18vmax;
-  left: -8vmax;
-  animation: float1 26s var(--ease) infinite;
-}
-
-.aurora span:nth-child(2) {
-  background: #dca707;
-  bottom: -22vmax;
-  right: -10vmax;
-  animation: float2 32s var(--ease) infinite;
-}
-
-.aurora span:nth-child(3) {
-  background: #0f4d30;
-  top: 30%;
-  left: 45%;
-  opacity: .24;
-  animation: float3 38s var(--ease) infinite;
-}
-
-@keyframes float1 {
-  50% {
-    transform: translate3d(6vmax, 5vmax, 0) scale(1.15);
-  }
-}
-
-@keyframes float2 {
-  50% {
-    transform: translate3d(-7vmax, -4vmax, 0) scale(1.1);
-  }
-}
-
-@keyframes float3 {
-  50% {
-    transform: translate3d(-5vmax, 6vmax, 0) scale(.9);
-  }
 }
 
 /* ============ 4. ตัวอักษรและตัวช่วย ============ */
@@ -442,6 +371,8 @@ input[type="range"]::-moz-range-thumb {
   background: var(--accent-2);
   box-shadow: 0 0 8px var(--accent-2);
   animation: statusPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: transform, opacity;
+  transform: translateZ(0);
 }
 
 @keyframes statusPulse {
@@ -495,14 +426,11 @@ input[type="range"]::-moz-range-thumb {
   width: min(440px, 100%);
   min-width: 0;
   margin: auto;
-  background: linear-gradient(180deg, rgba(13, 23, 18, .8), rgba(6, 11, 8, .9));
-  -webkit-backdrop-filter: blur(24px) saturate(170%);
-  backdrop-filter: blur(24px) saturate(170%);
+  background: #0c1812;
   border: 1px solid var(--line-2);
   border-radius: var(--r-xl);
   padding: clamp(1.2rem, 3.4vw, 1.7rem);
   box-shadow: var(--shadow-lg);
-  animation: rise .5s var(--ease) both;
 }
 
 .gate-card::before {
@@ -574,23 +502,24 @@ input[type="range"]::-moz-range-thumb {
   content: "";
   position: absolute;
   top: -50%;
-  left: -60%;
+  left: 0;
   width: 40%;
   height: 200%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
-  transform: rotate(25deg);
+  transform: rotate(25deg) translateX(-180%);
   animation: goldShimmer 4.5s ease-in-out infinite;
+  will-change: transform;
 }
 
 @keyframes goldShimmer {
 
   0%,
   75% {
-    left: -60%;
+    transform: rotate(25deg) translateX(-180%);
   }
 
   100% {
-    left: 140%;
+    transform: rotate(25deg) translateX(380%);
   }
 }
 
@@ -723,9 +652,7 @@ header {
   flex-wrap: wrap;
   padding: .7rem var(--pad);
   border-bottom: 1px solid var(--line);
-  background: rgba(8, 11, 18, .72);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  background: #09130e;
 }
 
 header .label {
@@ -805,18 +732,7 @@ aside {
   align-content: start;
 }
 
-/* ปกอัลบั้มเบลอเป็นแสงหลังการ์ดเพลง */
-.ambient {
-  position: absolute;
-  inset: 0;
-  /* ห้ามยื่นออกนอกกล่อง ไม่งั้นการ์ดจะมีสกอลล์บารโผล่ */
-  background: center / cover no-repeat;
-  filter: blur(55px) saturate(180%);
-  /* เบลอไม่นับเป็นพื้นที่เลื่อน จึงไม่ทำให้ล้น */
-  opacity: .28;
-  transition: background-image .5s, opacity .5s;
-  pointer-events: none;
-}
+
 
 #playerStage {
   position: relative;
@@ -945,6 +861,7 @@ a.yt:hover {
   transform: scaleY(.35);
   opacity: .4;
   transition: transform .3s var(--ease), opacity .3s;
+  will-change: transform;
 }
 
 #app.is-playing .eq i {
@@ -1051,22 +968,37 @@ a.yt:hover {
 }
 
 .controls #playBtn {
+  position: relative;
   width: 56px;
   height: 56px;
   font-size: 1.25rem;
   padding-left: .1em;
+  z-index: 1;
 }
 
-#app.is-playing .controls #playBtn {
-  box-shadow: 0 0 0 0 rgba(46, 157, 104, .55), 0 10px 30px -14px rgba(244, 188, 18, .9);
-  animation: pulse 2.6s ease-out infinite;
+#app.is-playing .controls #playBtn::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: var(--grad);
+  opacity: 0.65;
+  z-index: -1;
+  pointer-events: none;
+  animation: pulseGlow 2.4s cubic-bezier(0.2, 0.8, 0.4, 1) infinite;
+  will-change: transform, opacity;
 }
 
-@keyframes pulse {
+@keyframes pulseGlow {
+  0% {
+    transform: scale(1);
+    opacity: 0.65;
+  }
 
   70%,
   100% {
-    box-shadow: 0 0 0 16px rgba(46, 157, 104, 0), 0 10px 30px -14px rgba(244, 188, 18, .9);
+    transform: scale(1.38);
+    opacity: 0;
   }
 }
 
@@ -1428,11 +1360,13 @@ a.yt:hover {
 }
 
 .queue .mark {
+  display: inline-block;
   min-width: 24px;
   text-align: center;
   color: var(--muted);
   font-size: .76rem;
   font-variant-numeric: tabular-nums;
+  will-change: transform, opacity;
 }
 
 .queue li.current .mark {
@@ -1545,28 +1479,19 @@ a.yt:hover {
   font-size: .86rem;
   font-weight: 500;
   color: var(--text);
-  background: rgba(10, 18, 14, 0.92);
+  background: #0e1c15;
   border: 1px solid var(--line-2);
   border-radius: 999px;
-  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.9), 0 0 25px rgba(244, 188, 18, 0.2);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
   opacity: 0;
-  transform: translate(-50%, 20px) scale(0.94);
+  transform: translate3d(-50%, 20px, 0) scale(0.96);
   pointer-events: none;
-  transition: opacity .3s var(--ease), transform .3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity .25s var(--ease), transform .25s var(--ease);
 }
 
 .toast.show {
   opacity: 1;
-  transform: translate(-50%, 0) scale(1);
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
+  transform: translate3d(-50%, 0, 0) scale(1);
 }
 
 /* ============ 12. ขนาดหน้าจอ (Responsive Breakpoints) ============ */
@@ -1688,6 +1613,11 @@ a.yt:hover {
 
   header {
     padding: .6rem .8rem;
+    background: #09130e;
+  }
+
+  .gate-card {
+    background: #0c1812;
   }
 
   header .label {
@@ -1799,4 +1729,12 @@ a.yt:hover {
   .aurora span {
     animation: none;
   }
+}
+
+/* ============ 14. Performance Defaults (All Devices) ============ */
+.queue li,
+.search-list li,
+.room-list .room-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 44px;
 }
