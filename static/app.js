@@ -150,26 +150,8 @@
   }
 
   let rejectedUrl = null;
-  let checkModalTimer = null;
-
-  function showChecking(title, sub) {
-    const modal = $("checkModal");
-    if (!modal) return;
-    $("checkModalTitle").textContent = title || "กำลังตรวจสอบคลิป…";
-    $("checkModalSub").textContent = sub || "กำลังเช็คว่าคลิปนี้สามารถเล่นแบบฝังได้หรือไม่";
-    modal.hidden = false;
-    clearTimeout(checkModalTimer);
-    checkModalTimer = setTimeout(hideChecking, 8000);
-  }
-
-  function hideChecking() {
-    clearTimeout(checkModalTimer);
-    const modal = $("checkModal");
-    if (modal) modal.hidden = true;
-  }
 
   function showAddNotice(message, url) {
-    hideChecking();
     rejectedUrl = url;
     $("addNoticeText").textContent = message;
     $("addNotice").hidden = false;
@@ -312,12 +294,12 @@
                 player.setOption("captions", "track", {});
                 player.setOption("cc", "track", {});
               }
-            } catch (_) { }
+            } catch (_) {}
             try {
               if (player && player.unloadModule) {
                 player.unloadModule("captions");
               }
-            } catch (_) { }
+            } catch (_) {}
           }
           if (e.data === YT.PlayerState.ENDED) {
             const track = currentTrack();
@@ -383,7 +365,6 @@
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
-      hideChecking();
       if (msg.type === "welcome") {
         clientId = msg.clientId;
       } else if (msg.type === "pong") {
@@ -526,16 +507,18 @@
     // ระหว่างลากอยู่ ห้ามวาดคิวใหม่ ไม่งั้น DOM ที่กำลังลากหายกลางทาง
     if (!dragState) renderQueue();
     renderHistory();
-    renderListeners();
+
+    const listeners = $("listeners");
+    listeners.innerHTML = "";
+    state.listeners.forEach((l) => {
+      const li = document.createElement("li");
+      li.textContent = (l.host ? "🔊 " : "🎛 ") + l.name + (l.id === clientId ? " (คุณ)" : "");
+      listeners.appendChild(li);
+    });
   }
 
-  let lastQueueSig = "";
   function renderQueue() {
     const queue = $("queue");
-    const sig = state.queue.map((t) => t.id + ":" + (t.duration || "")).join("|");
-    if (sig === lastQueueSig) return;
-    lastQueueSig = sig;
-
     queue.innerHTML = "";
     state.queue.forEach((t, i) => {
       const li = document.createElement("li");
@@ -584,16 +567,11 @@
     return button;
   }
 
-  let lastHistorySig = "";
   function renderHistory() {
     const list = $("historyList");
     if (!list || !state) return;
     const history = state.history || [];
     $("historyCount").textContent = "(" + history.length + ")";
-    const sig = history.map((t) => t.id + ":" + t.videoId).join("|");
-    if (sig === lastHistorySig) return;
-    lastHistorySig = sig;
-
     list.innerHTML = "";
     if (!history.length) return;
     history.forEach((t) => {
@@ -606,29 +584,12 @@
       btn.className = "ghost small";
       btn.textContent = "+ เล่นอีกครั้ง";
       btn.addEventListener("click", () => {
-        showChecking("กำลังตรวจสอบเพลง…", "กำลังเช็คสถานะคลิปและเพิ่มเข้าคิว");
         send({ type: "add", url: t.videoId });
         toast("เพิ่ม “" + t.title + "” เข้าคิวอีกครั้งแล้ว");
       });
 
       li.append(title, btn);
       list.appendChild(li);
-    });
-  }
-
-  let lastListenersSig = "";
-  function renderListeners() {
-    const listeners = $("listeners");
-    if (!listeners || !state) return;
-    const sig = state.listeners.map((l) => l.id + ":" + l.name + ":" + l.host).join("|");
-    if (sig === lastListenersSig) return;
-    lastListenersSig = sig;
-
-    listeners.innerHTML = "";
-    state.listeners.forEach((l) => {
-      const li = document.createElement("li");
-      li.textContent = (l.host ? "🔊 " : "🎛 ") + l.name + (l.id === clientId ? " (คุณ)" : "");
-      listeners.appendChild(li);
     });
   }
 
@@ -749,10 +710,7 @@
 
   on("leaveBtn", "click", leaveRoom);
   on("addAnywayBtn", "click", () => {
-    if (rejectedUrl) {
-      showChecking("กำลังเพิ่มเข้าคิว…", "กำลังส่งคำขอเข้าคิว");
-      send({ type: "add", url: rejectedUrl, force: true });
-    }
+    if (rejectedUrl) send({ type: "add", url: rejectedUrl, force: true });
     hideAddNotice();
   });
   on("dismissNoticeBtn", "click", hideAddNotice);
@@ -831,7 +789,6 @@
     if (!text) return;
     hideAddNotice();
     if (looksLikeLink(text)) {
-      showChecking("กำลังตรวจสอบคลิป…", "กำลังเช็คว่าคลิปนี้สามารถเล่นแบบฝังได้หรือไม่");
       send({ type: "add", url: text });
       $("urlInput").value = "";
       $("searchPanel").hidden = true;
@@ -843,9 +800,8 @@
   $("searchResults").addEventListener("click", (e) => {
     const button = e.target.closest("button[data-vid]");
     if (!button || button.disabled) return;
-    showChecking("กำลังตรวจสอบเพลง…", "กำลังเช็คสถานะคลิปและเพิ่มเข้าคิว");
     send({ type: "add", url: button.dataset.vid });
-    button.textContent = "กำลังเพิ่ม…";
+    button.textContent = "เพิ่มแล้ว";
     button.disabled = true;
   });
 

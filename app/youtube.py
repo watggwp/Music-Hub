@@ -65,53 +65,11 @@ def parse_target(raw: str) -> dict | None:
 
 # ---------------- ตรวจคลิปหนึ่งคลิป ----------------
 def _probe_sync(video_id: str) -> dict:
-    """ตรวจว่าคลิปนี้ฝังเล่นได้ไหม พร้อมดึงชื่อคลิปในคำขอเดียว (~1.5 วินาที)"""
-    watch_url = f"https://www.youtube.com/watch?v={video_id}&hl=th"
-    try:
-        req = urllib.request.Request(
-            watch_url,
-            headers={"User-Agent": UA, "Accept-Language": "th,en;q=0.9"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            html = resp.read().decode("utf-8", "replace")
-
-        m = re.search(r'ytInitialPlayerResponse\s*=\s*({.+?});(?:var\s|</script>)', html)
-        if not m:
-            m = re.search(r'ytInitialPlayerResponse\s*=\s*({.+?});', html)
-        
-        if m:
-            data = json.loads(m.group(1))
-            ps = data.get("playabilityStatus", {})
-            status = ps.get("status")
-            playable_in_embed = ps.get("playableInEmbed", True)
-            reason = (ps.get("reason") or "").lower()
-            vd = data.get("videoDetails", {})
-            title = vd.get("title") or f"YouTube · {video_id}"
-
-            # ตรวจสอบสถานะการเล่นและการฝังคลิป
-            if status != "OK" or playable_in_embed is False:
-                if status in ("UNPLAYABLE", "LOGIN_REQUIRED") or playable_in_embed is False or "playback on other websites" in reason or "disabled" in reason:
-                    return {"ok": False, "reason": "embed", "title": title}
-                if status == "ERROR" or "unavailable" in reason:
-                    return {"ok": False, "reason": "missing", "title": title}
-                return {"ok": False, "reason": "embed", "title": title}
-
-            return {"ok": True, "title": title}
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            return {"ok": False, "reason": "embed"}
-        if exc.code in (400, 404):
-            return {"ok": False, "reason": "missing"}
-    except Exception:
-        pass
-
-    # สำรอง: หากหน้า watch อ่านไม่สำเร็จ ให้ลองผ่าน oEmbed อีกที
-    oembed_url = "https://www.youtube.com/oembed?" + urllib.parse.urlencode(
+    url = "https://www.youtube.com/oembed?" + urllib.parse.urlencode(
         {"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"}
     )
     try:
-        req = urllib.request.Request(oembed_url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(url, timeout=6) as resp:
             title = json.loads(resp.read().decode("utf-8")).get("title")
         return {"ok": True, "title": title or f"YouTube · {video_id}"}
     except urllib.error.HTTPError as exc:
@@ -119,10 +77,10 @@ def _probe_sync(video_id: str) -> dict:
             return {"ok": False, "reason": "embed"}
         if exc.code in (400, 404):
             return {"ok": False, "reason": "missing"}
+        # รหัสอื่น (429, 5xx) ถือว่าตรวจไม่ได้ ไม่ใช่ความผิดของคลิป
+        return {"ok": True, "title": f"YouTube · {video_id}", "unverified": True}
     except Exception:
-        pass
-
-    return {"ok": True, "title": f"YouTube · {video_id}", "unverified": True}
+        return {"ok": True, "title": f"YouTube · {video_id}", "unverified": True}
 
 
 async def probe_video(video_id: str) -> dict:

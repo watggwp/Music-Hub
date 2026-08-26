@@ -69,33 +69,26 @@ class Room:
         if was_empty:
             self.set_position(0.0, playing=True)
 
-    def drop_current(self, is_error: bool = False) -> bool:
+    def drop_current(self) -> None:
         """เล่นจบ / กดข้าม / เล่นไม่ได้ -> เอาเพลงหัวแถวออกแล้วเริ่มเพลงถัดไป"""
         if not self.queue:
             self.set_position(0.0, playing=False)
-            return False
+            return
 
         current_track = self.queue[0]
         self._add_history(current_track)
 
-        if is_error:
-            # เพลงที่มีปัญหา/ฝังไม่ได้ จะถูกนำออกจากคิวถาวรเสมอ
-            self.queue.pop(0)
-            self.set_position(0.0, playing=bool(self.queue))
-            return not bool(self.queue)
-
         if self.repeat_mode == "one":
             self.set_position(0.0, playing=True)
-            return False
+            return
         elif self.repeat_mode == "all":
             finished = self.queue.pop(0)
             self.queue.append(finished)
             self.set_position(0.0, playing=True)
-            return False
+            return
         else:
             self.queue.pop(0)
             self.set_position(0.0, playing=bool(self.queue))
-            return False
 
     def remove(self, track_id: str) -> None:
         pos = self._find(track_id)
