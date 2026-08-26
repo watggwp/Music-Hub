@@ -20,6 +20,9 @@ class Room:
         self.repeat_mode = "off"          # "off", "all", "one"
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
+        self.auto_dj = True               # True = ดึงเพลงต่ออัตโนมัติเมื่อคิวหมด
+        self.dj_stats: dict[str, dict[str, Any]] = {} # name -> {"songs": count, "duration": seconds}
+        self.total_played = 0
         self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
         self.volume_seq = 0               # นับทุกครั้งที่มีคนสั่งเปลี่ยนเสียง
         self.host_id: str | None = None
@@ -51,6 +54,9 @@ class Room:
             return
         self.volume_seq += 1
 
+    def set_auto_dj(self, value: Any) -> None:
+        self.auto_dj = bool(value)
+
     # ---------- คิวเพลง ----------
     def current(self) -> dict[str, Any] | None:
         return self.queue[0] if self.queue else None
@@ -59,6 +65,12 @@ class Room:
         return next((i for i, t in enumerate(self.queue) if t["id"] == track_id), None)
 
     def _add_history(self, track: dict[str, Any]) -> None:
+        self.total_played += 1
+        by = track.get("addedBy", "นิรนาม")
+        dur = float(track.get("duration") or 0.0)
+        if by in self.dj_stats:
+            self.dj_stats[by]["duration"] = round(self.dj_stats[by].get("duration", 0.0) + dur, 1)
+
         if not self.history or self.history[0].get("videoId") != track.get("videoId"):
             item = dict(track)
             item["id"] = secrets.token_hex(4)
@@ -68,6 +80,11 @@ class Room:
 
     def add(self, track: dict[str, Any]) -> None:
         was_empty = not self.queue
+        by = track.get("addedBy", "นิรนาม")
+        if by not in self.dj_stats:
+            self.dj_stats[by] = {"songs": 0, "duration": 0.0}
+        self.dj_stats[by]["songs"] += 1
+
         self.queue.append(track)
         if was_empty:
             self.set_position(0.0, playing=True)
@@ -160,6 +177,9 @@ class Room:
             "playing": self.playing,
             "position": round(self.position(), 3),
             "openControl": self.open_control,
+            "autoDj": self.auto_dj,
+            "djStats": self.dj_stats,
+            "totalPlayed": self.total_played,
             "volume": self.volume,
             "volumeSeq": self.volume_seq,
             "hostId": self.host_id,

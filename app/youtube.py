@@ -27,6 +27,7 @@ SEARCH_CACHE_MAX = 60
 
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _PLAYLIST_ID = re.compile(r"^(?:PL|RD|OLAK|UU|LL|FL|TL|VL|CL)[A-Za-z0-9_-]{8,}$")
+_SPOTIFY_PATTERN = re.compile(r"open\.spotify\.com/(track|playlist|album)/([A-Za-z0-9]+)")
 _VIDEO_PATTERNS = [
     re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})"),
     re.compile(r"youtu\.be/([A-Za-z0-9_-]{11})"),
@@ -36,13 +37,19 @@ _VIDEO_PATTERNS = [
 
 # ---------------- แยกลิงก์ ----------------
 def parse_target(raw: str) -> dict | None:
-    """คืน {"kind": "video"|"playlist", "id": ...}
+    """คืน {"kind": "video"|"playlist"|"spotify", ...}
 
     หากลิงก์มีพารามิเตอร์ list=... (รวมถึง YouTube Radio/Mix list=RD...) จะดึงเพลงทั้งชุดให้ทันที
+    หากเป็นลิงก์ Spotify จะคืน kind: spotify พร้อม type: track/playlist/album
     """
     text = (raw or "").strip()
     if not text:
         return None
+
+    # ตรวจสอบลิงก์ Spotify
+    sm = _SPOTIFY_PATTERN.search(text)
+    if sm:
+        return {"kind": "spotify", "type": sm.group(1), "id": sm.group(2), "url": text}
 
     # หากมีพารามิเตอร์ list= ให้ดึงทั้ง playlist / radio mix เป็นอันดับแรก
     found_list = re.search(r"[?&]list=([A-Za-z0-9_-]+)", text)
@@ -304,3 +311,122 @@ async def playlist_video_ids(playlist_id: str) -> list[str]:
         return await asyncio.to_thread(_playlist_ids_sync, playlist_id)
     except Exception:
         return []
+
+
+# ---------------- Spotify Track & Playlist Extraction ----------------
+def _fetch_spotify_sync(spot_type: str, spot_id: str) -> list[str]:
+    """ดึงรายชื่อเพลงและศิลปินจาก Spotify embed page โดยไม่ต้องใช้ API key"""
+    url = f"https://open.spotify.com/embed/{spot_type}/{spot_id}"
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": UA, "Accept-Language": "th,en-US;q=0.9,en;q=0.8"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            html = res.read().decode("utf-8", "replace")
+    except Exception:
+        return []
+
+    queries: list[str] = []
+    m = re.search(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', html)
+    if m:
+        try:
+            js = json.loads(m.group(1))
+            entity = js.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+            if spot_type == "track":
+                title = entity.get("title") or entity.get("name") or ""
+                artists = [a.get("name", "") for a in entity.get("artists", [])]
+                artist_str = " ".join(filter(None, artists))
+                if title:
+                    queries.append(f"{title} {artist_str}".strip())
+            else:
+                # playlist or album
+                track_list = entity.get("trackList", [])
+                for t in track_list[:PLAYLIST_LIMIT]:
+                    title = t.get("title") or ""
+                    subtitle = t.get("subtitle") or ""
+                    if title:
+                        queries.append(f"{title} {subtitle}".strip())
+        except Exception:
+            pass
+
+    return queries
+
+
+async def fetch_spotify_tracks(spot_type: str, spot_id: str) -> list[str]:
+    try:
+        return await asyncio.to_thread(_fetch_spotify_sync, spot_type, spot_id)
+    except Exception:
+        return []
+
+
+def _normalize_title_for_cmp(title: str) -> str:
+    cleaned = clean_title(title).lower()
+    return re.sub(r"[^a-zA-Z0-9\u0e00-\u0e7f]+", " ", cleaned).strip()
+
+
+def is_too_similar(title_a: str, title_b: str) -> bool:
+    na = _normalize_title_for_cmp(title_a)
+    nb = _normalize_title_for_cmp(title_b)
+    if not na or not nb:
+        return False
+    if na == nb or na in nb or nb in na:
+        return True
+    return False
+
+
+_NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind the scene", "reaction", "vlog", "podcast"}
+
+# ---------------- Auto DJ (ค้นหาเพลงถัดไปอัตโนมัติ) ----------------
+async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids: set[str]) -> dict | None:
+    """ค้นหาเพลงถัดไปที่ไม่ใช่เพลงเดิม โดยใช้ YouTube Radio / Mix และค้นหาเพลงแนวเดียวกัน"""
+    all_exclude = set(exclude_ids)
+    if seed_video_id:
+        all_exclude.add(seed_video_id)
+
+    # 1. วิธีที่ 1: ดึงจาก YouTube Mix (RD{video_id}) ของเพลงล่าสุด — แม่นยำและเป็นเพลงแนวเดียวกันที่สุด
+    if seed_video_id:
+        mix_id = f"RD{seed_video_id}"
+        mix_vids = await playlist_video_ids(mix_id)
+        candidates = [vid for vid in mix_vids if vid not in all_exclude]
+        if candidates:
+            # สุ่มตรวจคลิปใน Mix
+            sample = candidates[:12]
+            probes = await probe_many(sample)
+            for p in probes:
+                if p.get("ok"):
+                    cand_title = p.get("title", "")
+                    cand_lower = cand_title.lower()
+                    if any(bad in cand_lower for bad in _NON_MUSIC_KEYWORDS):
+                        continue
+                    if not is_too_similar(cand_title, current_title):
+                        return {
+                            "videoId": p["videoId"],
+                            "title": cand_title,
+                        }
+
+    # 2. วิธีที่ 2: หาก Mix ไม่มี ให้สกัดชื่อศิลปินหรือค้นหาเพลงที่เกี่ยวข้อง
+    query = clean_title(current_title)
+    if not query:
+        query = current_title
+
+    search_queries = [f"{query} related music", f"{query} song", f"{query} music"]
+    for q in search_queries:
+        candidates = await search_videos(q, limit=10)
+        for item in candidates:
+            vid = item.get("videoId")
+            cand_title = item.get("title", "")
+            cand_lower = cand_title.lower()
+            if not vid or vid in all_exclude:
+                continue
+            if any(bad in cand_lower for bad in _NON_MUSIC_KEYWORDS):
+                continue
+            if is_too_similar(cand_title, current_title):
+                continue
+            probe = await probe_video(vid)
+            if probe.get("ok"):
+                return {
+                    "videoId": vid,
+                    "title": probe.get("title", cand_title),
+                }
+    return None

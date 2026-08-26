@@ -520,6 +520,13 @@
       rBtn.disabled = !canControl;
     }
 
+    const autoDjBtn = $("autoDjBtn");
+    if (autoDjBtn) {
+      autoDjBtn.textContent = state.autoDj ? "🤖 Auto DJ: เปิด" : "🤖 Auto DJ: ปิด";
+      autoDjBtn.className = state.autoDj ? "ghost small active" : "ghost small";
+      autoDjBtn.disabled = !canControl;
+    }
+
     if (!draggingVolume) {
       const shown = wantedVolume();
       $("volume").value = shown;
@@ -533,6 +540,7 @@
     // ระหว่างลากอยู่ ห้ามวาดคิวใหม่ ไม่งั้น DOM ที่กำลังลากหายกลางทาง
     if (!dragState) renderQueue();
     renderHistory();
+    if ($("statsModal") && !$("statsModal").hidden) renderStats();
 
     const listeners = $("listeners");
     listeners.innerHTML = "";
@@ -615,6 +623,76 @@
       });
 
       li.append(title, btn);
+      list.appendChild(li);
+    });
+  }
+
+  function renderStats() {
+    if (!state) return;
+    const djStats = state.djStats || {};
+    const totalPlayed = state.totalPlayed || 0;
+    if ($("statTotalSongs")) $("statTotalSongs").textContent = totalPlayed;
+
+    let totalDuration = 0;
+    let topDj = "-";
+    let topSongs = 0;
+
+    const entries = Object.entries(djStats);
+    entries.forEach(([name, data]) => {
+      totalDuration += data.duration || 0;
+      if ((data.songs || 0) > topSongs) {
+        topSongs = data.songs;
+        topDj = name;
+      }
+    });
+
+    const mins = Math.round(totalDuration / 60);
+    const hrs = (totalDuration / 3600).toFixed(1);
+    if ($("statTotalTime")) {
+      $("statTotalTime").textContent = totalDuration >= 3600 ? hrs + " ชม." : mins + " นาที";
+    }
+    if ($("statTopDj")) $("statTopDj").textContent = topDj;
+
+    // จัดอันดับ Leaderboard
+    entries.sort((a, b) => (b[1].songs || 0) - (a[1].songs || 0));
+    const list = $("leaderboardList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    if (!entries.length) {
+      const li = document.createElement("li");
+      li.className = "muted tiny";
+      li.style.textAlign = "center";
+      li.style.padding = "1rem";
+      li.textContent = "ยังไม่มีสถิติ DJ ในห้องนี้";
+      list.appendChild(li);
+      return;
+    }
+
+    entries.forEach(([name, data], idx) => {
+      const li = document.createElement("li");
+      li.className = "leaderboard-item rank-" + (idx + 1);
+
+      const left = document.createElement("div");
+      left.className = "dj-rank-name";
+      const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "#" + (idx + 1);
+      const badge = document.createElement("span");
+      badge.className = "dj-badge";
+      badge.textContent = medal;
+      const djName = document.createElement("span");
+      djName.textContent = name;
+      left.append(badge, djName);
+
+      const right = document.createElement("div");
+      right.className = "dj-stats-info";
+      const songsCount = document.createElement("span");
+      songsCount.textContent = (data.songs || 0) + " เพลง";
+      const durText = document.createElement("span");
+      durText.className = "mono tiny";
+      durText.textContent = fmt(data.duration || 0);
+      right.append(songsCount, durText);
+
+      li.append(left, right);
       list.appendChild(li);
     });
   }
@@ -749,6 +827,25 @@
     } catch (_) {
       toast("คัดลอกไม่ได้ ใช้รหัสห้อง " + roomCode + " แทนได้");
     }
+  });
+
+  on("statsBtn", "click", () => {
+    const modal = $("statsModal");
+    if (modal) {
+      modal.hidden = false;
+      renderStats();
+    }
+  });
+  on("closeStatsBtn", "click", () => {
+    const modal = $("statsModal");
+    if (modal) modal.hidden = true;
+  });
+  on("statsModal", "click", (e) => {
+    if (e.target === $("statsModal")) $("statsModal").hidden = true;
+  });
+
+  on("autoDjBtn", "click", () => {
+    if (state) send({ type: "setAutoDj", value: !state.autoDj });
   });
 
   on("playBtn", "click", () => {

@@ -57,6 +57,7 @@
         <span class="label">ห้อง</span>
         <strong id="roomCode">------</strong>
         <button type="button" id="copyLinkBtn" class="ghost small">คัดลอกลิงก์</button>
+        <button type="button" id="statsBtn" class="ghost small">📊 สถิติห้อง</button>
         <button type="button" id="leaveBtn" class="ghost small">ออกจากห้อง</button>
       </div>
       <div class="status">
@@ -133,10 +134,10 @@
         <div class="panel">
           <h2>เพิ่มเพลง</h2>
           <form id="addForm" class="add">
-            <input id="urlInput" placeholder="ค้นหาชื่อเพลง หรือวางลิงก์ YouTube" autocomplete="off" />
+            <input id="urlInput" placeholder="ค้นหาชื่อเพลง, ลิงก์ YouTube หรือ Spotify..." autocomplete="off" />
             <button type="submit" class="primary">ค้นหา</button>
           </form>
-          <p class="hint">พิมพ์ชื่อเพลงเพื่อค้นหาแบบค้นสด · วางลิงก์คลิปหรือ playlist (สูงสุด 100 เพลง)</p>
+          <p class="hint">พิมพ์ชื่อเพลง · วางลิงก์ YouTube, Playlist หรือ Spotify Playlist/Track</p>
 
           <div id="searchPanel" class="search-panel" hidden>
             <div class="search-head">
@@ -159,6 +160,7 @@
           <div class="panel-head">
             <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
             <div class="panel-acts">
+              <button type="button" id="autoDjBtn" class="ghost small" title="เปิด/ปิด Auto DJ">🤖 Auto DJ</button>
               <button type="button" id="repeatBtn" class="ghost small" title="เปลี่ยนโหมดวนซ้ำ (กด R)">➡️
                 ไม่ซ้ำ</button>
               <button type="button" id="shuffleBtn" class="ghost small" title="สุ่มคิว (กด S)">🔀 สุ่ม</button>
@@ -210,8 +212,41 @@
     </div>
   </div>
 
+  <!-- ================= Popup สถิติห้องและ DJ Leaderboard ================= -->
+  <div id="statsModal" class="stats-modal" hidden>
+    <div class="stats-modal-card">
+      <div class="stats-head">
+        <div class="stats-title-group">
+          <strong>🏆 กระดานสถิติ DJ ประจำห้อง</strong>
+          <p class="muted tiny">จัดอันดับยอดคนเปิดเพลงและเวลารวมในห้องนี้</p>
+        </div>
+        <button type="button" id="closeStatsBtn" class="ghost small">✕</button>
+      </div>
+
+      <div class="stats-overview">
+        <div class="stat-pill">
+          <span class="stat-num" id="statTotalSongs">0</span>
+          <span class="stat-lbl">เพลงที่เล่นแล้ว</span>
+        </div>
+        <div class="stat-pill">
+          <span class="stat-num" id="statTotalTime">0 นาที</span>
+          <span class="stat-lbl">เวลาฟังทั้งหมด</span>
+        </div>
+        <div class="stat-pill">
+          <span class="stat-num" id="statTopDj">-</span>
+          <span class="stat-lbl">Top DJ</span>
+        </div>
+      </div>
+
+      <div class="leaderboard-section">
+        <h3>อันดับ DJ ในห้อง</h3>
+        <ul id="leaderboardList" class="leaderboard-list"></ul>
+      </div>
+    </div>
+  </div>
+
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=33"></script>
+  <script src="/static/app.js?v=34"></script>
 </body>
 
 </html>

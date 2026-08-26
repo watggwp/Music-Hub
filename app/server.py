@@ -13,7 +13,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .room import Room
-from .youtube import (find_playable_alternatives, parse_target, playlist_video_ids,
+from .youtube import (fetch_spotify_tracks, find_auto_dj_track,
+                      find_playable_alternatives, parse_target, playlist_video_ids,
                       probe_many, probe_video, search_videos, watch_title)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -41,7 +42,7 @@ rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
 
 CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
-                   "shuffle", "setVolume", "clearQueue", "setRepeatMode"}
+                   "shuffle", "setVolume", "clearQueue", "setRepeatMode", "setAutoDj"}
 
 
 def now_ms() -> int:
@@ -203,6 +204,37 @@ def make_track(video_id: str, title: str, added_by: str) -> dict[str, Any]:
     }
 
 
+async def maybe_trigger_auto_dj(room: Room) -> None:
+    """เมื่อ Auto DJ เปิดอยู่ และคิวเหลือ <= 1 เพลง จะหาเพลงถัดไปมาต่อคิวให้อัตโนมัติ"""
+    if not room.auto_dj:
+        return
+    if len(room.queue) > 1:
+        return
+
+    seed_vid = ""
+    seed_title = ""
+    if room.queue:
+        seed_vid = room.queue[-1].get("videoId", "")
+        seed_title = room.queue[-1].get("title", "")
+    elif room.history:
+        seed_vid = room.history[0].get("videoId", "")
+        seed_title = room.history[0].get("title", "")
+
+    if not seed_title and not seed_vid:
+        return
+
+    exclude_ids = {t["videoId"] for t in room.queue} | {
+        t.get("videoId") for t in room.history if t.get("videoId")
+    }
+    next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids)
+    if next_track:
+        async with room.lock:
+            if len(room.queue) <= 1:
+                room.add(make_track(next_track["videoId"], next_track["title"], "🤖 Auto DJ"))
+        await broadcast(room)
+        await notify(room, f"🤖 Auto DJ เล่นต่อ: “{next_track['title']}”")
+
+
 async def handle_add(room: Room, client_id: str, message: dict[str, Any],
                      socket: WebSocket) -> None:
     raw = str(message.get("url") or "")
@@ -211,8 +243,74 @@ async def handle_add(room: Room, client_id: str, message: dict[str, Any],
     who = room.names.get(client_id, "ผู้ฟัง")
 
     if target is None:
-        await socket.send_json({"type": "error", "message": "ลิงก์ YouTube ไม่ถูกต้อง"})
+        await socket.send_json({"type": "error", "message": "ลิงก์ YouTube หรือ Spotify ไม่ถูกต้อง"})
         return
+
+    # ---------- นำเข้าจาก Spotify ----------
+    if target["kind"] == "spotify":
+        spot_type = target.get("type", "track")
+        spot_id = target.get("id", "")
+        queries = await fetch_spotify_tracks(spot_type, spot_id)
+        if not queries:
+            await socket.send_json(
+                {"type": "error", "message": "อ่านข้อมูลจาก Spotify ไม่สำเร็จ (อาจเป็นเพลย์ลิสต์ส่วนตัว)"}
+            )
+            return
+
+        if spot_type == "track":
+            query = queries[0]
+            results = await search_videos(query, limit=5)
+            added_track = None
+            for item in results:
+                p = await probe_video(item["videoId"])
+                if p.get("ok"):
+                    added_track = item
+                    break
+            if not added_track:
+                await socket.send_json(
+                    {"type": "error", "message": f"ไม่พบเพลง “{query}” บน YouTube ที่เล่นแบบฝังได้"}
+                )
+                return
+            async with room.lock:
+                room.add(make_track(added_track["videoId"], added_track["title"], who))
+            await broadcast(room)
+            await notify(room, f"นำเข้าเพลง “{added_track['title']}” จาก Spotify แล้ว")
+            return
+        else:
+            # playlist หรือ album
+            await socket.send_json(
+                {"type": "notice", "message": f"กำลังค้นหาและนำเข้า {len(queries)} เพลงจาก Spotify..."}
+            )
+            sem = asyncio.Semaphore(5)
+
+            async def resolve_one(q: str):
+                async with sem:
+                    try:
+                        res = await search_videos(q, limit=3)
+                        for item in res:
+                            p = await probe_video(item["videoId"])
+                            if p.get("ok"):
+                                return item
+                    except Exception:
+                        pass
+                    return None
+
+            tasks = [resolve_one(q) for q in queries]
+            resolved = await asyncio.gather(*tasks)
+            valid_tracks = [t for t in resolved if t is not None]
+
+            if not valid_tracks:
+                await socket.send_json(
+                    {"type": "error", "message": "ไม่สามารถแปลงเพลงจาก Spotify เพลย์ลิสต์นี้ได้"}
+                )
+                return
+
+            async with room.lock:
+                for item in valid_tracks:
+                    room.add(make_track(item["videoId"], item["title"], who))
+            await broadcast(room)
+            await notify(room, f"นำเข้า {len(valid_tracks)}/{len(queries)} เพลงจาก Spotify สำเร็จ")
+            return
 
     # ---------- playlist ทั้งชุด ----------
     if target["kind"] == "playlist":
@@ -317,6 +415,8 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         if kind == "trackError":
             await notify(room, f"เล่น “{title}” ไม่ได้ (เจ้าของคลิปปิดการฝังหรือถูกจำกัด) — เอาออกจากคิวแล้ว")
             await offer_alternatives(room, title, video_id)
+        if room.auto_dj and len(room.queue) <= 1:
+            asyncio.create_task(maybe_trigger_auto_dj(room))
         return
 
     if kind == "setOpenControl":
@@ -342,6 +442,8 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         if kind == "play":
             if room.queue:
                 room.set_position(room.position(), playing=True)
+            elif room.auto_dj and room.history:
+                asyncio.create_task(maybe_trigger_auto_dj(room))
         elif kind == "pause":
             room.set_position(room.position(), playing=False)
         elif kind == "seek":
@@ -361,10 +463,15 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             room.shuffle_rest()
         elif kind == "setRepeatMode":
             room.set_repeat_mode(message.get("mode"))
+        elif kind == "setAutoDj":
+            room.set_auto_dj(message.get("value"))
         elif kind == "clearQueue":
             room.clear_queue()
 
     await broadcast(room)
+    if kind in {"next", "remove", "setAutoDj"} and room.auto_dj and len(room.queue) <= 1:
+        asyncio.create_task(maybe_trigger_auto_dj(room))
+
     if kind == "clearQueue":
         who = room.names.get(client_id, "ผู้ฟัง")
         await notify(room, f"“{who}” ได้ล้างคิวเพลงทั้งหมดแล้ว")
