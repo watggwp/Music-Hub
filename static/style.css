@@ -1738,3 +1738,76 @@ a.yt:hover {
   content-visibility: auto;
   contain-intrinsic-size: 0 44px;
 }
+
+/* ============ 15. Popup ปลดบล็อกเสียง (Autoplay Unlock Modal) ============ */
+.unblock-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 6, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 1.2rem;
+  animation: checkFadeIn 0.2s ease-out;
+  cursor: pointer;
+}
+
+.unblock-modal-card {
+  background: linear-gradient(135deg, #0d281c 0%, #06110b 100%);
+  border: 1px solid var(--accent-3);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), 0 0 30px rgba(244, 188, 18, 0.2);
+  border-radius: var(--r-lg);
+  padding: 1.6rem 1.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  max-width: 400px;
+  width: 100%;
+  animation: checkPopIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: default;
+}
+
+.unblock-icon-pulse {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(244, 188, 18, 0.15);
+  border: 2px solid var(--accent-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  box-shadow: 0 0 20px rgba(244, 188, 18, 0.35);
+  animation: beat 1.5s ease-in-out infinite;
+}
+
+.unblock-content strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+
+.unblock-content p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.unblock-modal-card button.primary {
+  width: 100%;
+  padding: 0.75rem 1.2rem;
+  font-size: 1rem;
+}
+
+@keyframes checkFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes checkPopIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}

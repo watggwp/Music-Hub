@@ -35,9 +35,12 @@ class Room:
             return self._pos + (time.monotonic() - self._mark)
         return self._pos
 
-    def set_position(self, pos: float, playing: bool | None = None) -> None:
-        self._pos = max(0.0, float(pos))
-        self._mark = time.monotonic()
+    def set_position(self, pos: Any, playing: bool | None = None) -> None:
+        try:
+            self._pos = max(0.0, float(pos))
+            self._mark = time.monotonic()
+        except (TypeError, ValueError):
+            pass
         if playing is not None:
             self.playing = playing
 

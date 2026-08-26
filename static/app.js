@@ -250,12 +250,26 @@
   }
 
   // ---------- YouTube player (สร้างเฉพาะเครื่องโฮสต์) ----------
+  function checkYtApiReady() {
+    if (window.YT && window.YT.Player) {
+      ytApiReady = true;
+      if (wantPlayer && !player) createPlayer();
+    }
+  }
+
+  // ดักทั้งกรณีที่ API โหลดเสร็จจากแคชก่อนที่ app.js จะรัน
+  if (typeof YT !== "undefined" && YT && YT.Player) {
+    ytApiReady = true;
+  }
   window.onYouTubeIframeAPIReady = () => {
     ytApiReady = true;
     if (wantPlayer) createPlayer();
   };
 
   function createPlayer() {
+    if (!ytApiReady && typeof YT !== "undefined" && YT && YT.Player) {
+      ytApiReady = true;
+    }
     if (player || !ytApiReady) return;
     const stage = $("playerStage");
     if (!stage) return;
@@ -327,6 +341,7 @@
     const mount = $("ytMount");
     if (mount) mount.remove();
     if ($("unblockBtn")) $("unblockBtn").hidden = true;
+    if ($("unblockModal")) $("unblockModal").hidden = true;
   }
 
   function applyRole() {
@@ -405,7 +420,14 @@
 
   // ---------- ตัวซิงก์ (ทำงานเฉพาะเครื่องโฮสต์) ----------
   function sync() {
-    if (!isHost || !playerReady || !state) return;
+    if (!isHost || !state) return;
+    if (!player || !playerReady) {
+      if (wantPlayer) {
+        if (!ytApiReady && typeof YT !== "undefined" && YT && YT.Player) ytApiReady = true;
+        if (ytApiReady && !player) createPlayer();
+      }
+      return;
+    }
     const track = currentTrack();
 
     if (!track) {
@@ -435,10 +457,14 @@
     const ps = player.getPlayerState();
     if (state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
       player.playVideo();
-      // สั่งเล่นแล้วยังไม่ขยับสองรอบติด = เบราว์เซอร์บล็อกอยู่ ต้องให้ผู้ใช้กดเอง
-      if (++blockedTicks >= 2 && $("unblockBtn")) $("unblockBtn").hidden = false;
+      // สั่งเล่นแล้วยังไม่ขยับ = เบราว์เซอร์บล็อกเสียงอยู่ แสดง popup แจ้งเตือนทันที
+      if (++blockedTicks >= 1) {
+        if ($("unblockModal")) $("unblockModal").hidden = false;
+        if ($("unblockBtn")) $("unblockBtn").hidden = false;
+      }
     } else {
       blockedTicks = 0;
+      if ($("unblockModal")) $("unblockModal").hidden = true;
       if ($("unblockBtn")) $("unblockBtn").hidden = true;
     }
     if (!state.playing && ps === YT.PlayerState.PLAYING) player.pauseVideo();
@@ -917,14 +943,34 @@
     sendVolume(value, true);   // ค่าสุดท้ายส่งทันที ไม่ตกหล่น
   });
 
-  $("unblockBtn").addEventListener("click", () => {
-    $("unblockBtn").hidden = true;
+  function unlockAudio() {
     blockedTicks = 0;
-    if (playerReady) {
+    if ($("unblockBtn")) $("unblockBtn").hidden = true;
+    if ($("unblockModal")) $("unblockModal").hidden = true;
+    if (isHost && player && playerReady) {
       applyVolume(wantedVolume());
+      if (player.isMuted && player.isMuted()) player.unMute();
       player.playVideo();
     }
-  });
+  }
+
+  on("unblockBtn", "click", unlockAudio);
+  on("unblockModalBtn", "click", unlockAudio);
+  on("unblockModal", "click", unlockAudio);
+
+  // ปลดบล็อกเสียงอัตโนมัติทันทีที่ผู้ใช้สัมผัสหรือคลิกตรงไหนก็ได้บนหน้าจอ (User Gesture Auto-unlock)
+  document.addEventListener("pointerdown", () => {
+    if (isHost && player && playerReady) {
+      if (blockedTicks > 0 || ($("unblockModal") && !$("unblockModal").hidden)) {
+        unlockAudio();
+      } else {
+        const ps = (player.getPlayerState && player.getPlayerState()) ?? -1;
+        if (state && state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
+          unlockAudio();
+        }
+      }
+    }
+  }, { passive: true });
 
   // คลิกบนแถบเวลาเพื่อ seek — ส่งขึ้นเซิร์ฟเวอร์ให้ทุกเครื่องกระโดดตาม
   document.querySelector(".bar").addEventListener("click", (e) => {

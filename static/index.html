@@ -194,8 +194,24 @@
     <p id="toast" class="toast" role="status" aria-live="polite"></p>
   </div>
 
+  <!-- ================= Popup แจ้งเตือนแตะเพื่อเปิดเสียง/เล่น ================= -->
+  <div id="unblockModal" class="unblock-modal" hidden>
+    <div class="unblock-modal-card">
+      <div class="unblock-icon-pulse">
+        <span class="unblock-icon">🔊</span>
+      </div>
+      <div class="unblock-content">
+        <strong>เบราว์เซอร์หยุดเสียงไว้ชั่วคราว</strong>
+        <p class="muted tiny">แตะที่ปุ่มนี้หรือคลิกที่ไหนก็ได้บนหน้าจอ เพื่อเริ่มเล่นเสียงทันที</p>
+      </div>
+      <button type="button" id="unblockModalBtn" class="primary">
+        <span>▶ แตะเพื่อเปิดเสียง & เล่นเพลง</span>
+      </button>
+    </div>
+  </div>
+
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=30"></script>
+  <script src="/static/app.js?v=33"></script>
 </body>
 
 </html>
