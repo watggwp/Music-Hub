@@ -1731,10 +1731,98 @@ a.yt:hover {
   }
 }
 
-/* ============ 14. Performance Defaults (All Devices) ============ */
+/* ============ 14. Performance Defaults (Ultra Low-End / No GPU friendly) ============ */
+.app,
+.gate-card,
+.panel,
+.player-inner {
+  transform: translateZ(0);
+  contain: content;
+}
+
+.queue,
+.history-list,
+.search-list,
+.room-list {
+  content-visibility: auto;
+  contain: paint layout;
+}
+
 .queue li,
 .search-list li,
 .room-list .room-card {
-  content-visibility: auto;
   contain-intrinsic-size: 0 44px;
+}
+
+/* ============ 15. Popup ตรวจสอบคลิป (Zero Blur / CPU-Friendly) ============ */
+.check-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 6, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+  animation: checkFadeIn 0.16s ease-out;
+  transform: translateZ(0);
+}
+
+.check-modal-card {
+  background: #0a1912;
+  border: 1px solid var(--line-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+  border-radius: var(--r-lg);
+  padding: 1.3rem 1.6rem;
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  max-width: 420px;
+  width: 100%;
+  animation: checkPopIn 0.2s ease-out;
+  transform: translateZ(0);
+}
+
+.check-spinner {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(46, 157, 104, 0.25);
+  border-top-color: var(--accent-2);
+  border-right-color: var(--tech-yellow);
+  animation: checkSpin 0.75s linear infinite;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.check-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.check-info strong {
+  font-size: 0.98rem;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.check-info p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+@keyframes checkSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes checkFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes checkPopIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }
