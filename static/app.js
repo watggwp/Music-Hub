@@ -294,12 +294,12 @@
                 player.setOption("captions", "track", {});
                 player.setOption("cc", "track", {});
               }
-            } catch (_) {}
+            } catch (_) { }
             try {
               if (player && player.unloadModule) {
                 player.unloadModule("captions");
               }
-            } catch (_) {}
+            } catch (_) { }
           }
           if (e.data === YT.PlayerState.ENDED) {
             const track = currentTrack();
