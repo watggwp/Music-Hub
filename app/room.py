@@ -20,7 +20,7 @@ class Room:
         self.repeat_mode = "off"          # "off", "all", "one"
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
-        self.auto_dj = True               # True = ดึงเพลงต่ออัตโนมัติเมื่อคิวหมด
+        self.auto_dj = False               # True = ดึงเพลงต่ออัตโนมัติเมื่อคิวหมด
         self.dj_stats: dict[str, dict[str, Any]] = {} # name -> {"songs": count, "duration": seconds}
         self.total_played = 0
         self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้

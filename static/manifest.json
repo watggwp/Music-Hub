@@ -5,8 +5,8 @@
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#060b08",
-  "theme_color": "#060b08",
+  "background_color": "#070d0a",
+  "theme_color": "#0e1a14",
   "icons": [
     {
       "src": "/static/logo-mark.svg",

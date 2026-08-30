@@ -230,9 +230,9 @@ async def maybe_trigger_auto_dj(room: Room) -> None:
     if next_track:
         async with room.lock:
             if len(room.queue) <= 1:
-                room.add(make_track(next_track["videoId"], next_track["title"], "🤖 Auto DJ"))
+                room.add(make_track(next_track["videoId"], next_track["title"], "Auto DJ"))
         await broadcast(room)
-        await notify(room, f"🤖 Auto DJ เล่นต่อ: “{next_track['title']}”")
+        await notify(room, f"Auto DJ เล่นต่อ: “{next_track['title']}”")
 
 
 async def handle_add(room: Room, client_id: str, message: dict[str, Any],

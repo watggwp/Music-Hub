@@ -4,6 +4,17 @@
 (() => {
   const $ = (id) => document.getElementById(id);
 
+  /* ไอคอนลำโพงของปุ่ม mute — วาดเป็น SVG เส้นเดียวกับไอคอนอื่นในหน้า
+     .wave กับ .slash ถูกสลับซ่อน/โชว์ด้วยคลาส .is-muted ใน CSS */
+  const MUTE_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"' +
+    ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M11 5 6 9H3v6h3l5 4z"/>' +
+    '<path class="wave" d="M15.4 9.6a3.4 3.4 0 0 1 0 4.8"/>' +
+    '<path class="wave" d="M18 7a7 7 0 0 1 0 10"/>' +
+    '<path class="slash" d="M16 9.5l5 5m0-5l-5 5"/>' +
+    '</svg>';
+
   let ws = null;
   let player = null;
   let playerReady = false;
@@ -15,6 +26,8 @@
   let stateTs = 0;             // เวลาเซิร์ฟเวอร์ (ms) ที่ snapshot ถูกสร้าง
   let clockOffset = 0;         // serverNow ≈ Date.now() + clockOffset
   let blockedTicks = 0;        // นับรอบที่สั่งเล่นแล้วเบราว์เซอร์ไม่เล่นตาม
+  let selfActionAt = 0;        // เวลาที่ "เรา" สั่ง play/pause ตัว player เอง
+  let awaitingLoad = false;    // เพิ่งสั่งโหลดเพลงใหม่ ยังไม่นับ event แรกเป็นการกดของผู้ใช้
   let loadedVideoId = null;
   let roomCode = "";
   let myName = "";
@@ -214,6 +227,11 @@
       const art = document.createElement("img");
       art.src = "https://i.ytimg.com/vi/" + item.videoId + "/default.jpg";
       art.alt = "";
+      // โหลดรูปเฉพาะที่เลื่อนมาถึง และถอดรหัสนอกเธรดหลัก — ลิสต์ยาวๆ จะไม่หน่วง
+      art.loading = "lazy";
+      art.decoding = "async";
+      art.width = 68;
+      art.height = 38;
 
       const text = document.createElement("span");
       text.className = "t";
@@ -300,7 +318,26 @@
           sync();
         },
         onStateChange: (e) => {
-          if (e.data === YT.PlayerState.PLAYING) {
+          const isPlay = e.data === YT.PlayerState.PLAYING;
+          const isPause = e.data === YT.PlayerState.PAUSED;
+
+          // event แรกหลังสั่งโหลดเพลงใหม่เป็นผลของการโหลด ไม่ใช่ผู้ใช้กด
+          if (awaitingLoad && (isPlay || isPause)) {
+            awaitingLoad = false;
+          } else if (state && !isSelfAction()) {
+            /* โฮสต์กดเล่น/หยุดจากในกรอบ YouTube โดยตรง — ต้องบอกเซิร์ฟเวอร์ด้วย
+               ถ้าไม่บอก เซิร์ฟเวอร์จะยังคิดว่าเล่นอยู่ แล้ว sync() จะสั่ง playVideo()
+               ซ้ำทุก 2 วินาที จนไปเข้าเงื่อนไข "เบราว์เซอร์บล็อกเสียง" ทั้งที่ผู้ใช้ตั้งใจหยุด */
+            if (isPause && state.playing) {
+              markSelfAction();
+              send({ type: "pause" });
+            } else if (isPlay && !state.playing) {
+              markSelfAction();
+              send({ type: "play" });
+            }
+          }
+
+          if (isPlay) {
             if (state) applyVolume(wantedVolume());
             // ปิดคำบรรยาย/ซับไตเติลให้อัตโนมัติโดยไม่ทำให้ตัวเล่นค้าง
             try {
@@ -316,6 +353,7 @@
             } catch (_) {}
           }
           if (e.data === YT.PlayerState.ENDED) {
+            awaitingLoad = false;
             const track = currentTrack();
             if (track) send({ type: "ended", videoId: track.videoId });
           }
@@ -327,6 +365,19 @@
         },
       },
     });
+  }
+
+  /* YouTube ยิง event PLAYING/PAUSED ทั้งตอนผู้ใช้กดเอง และตอนที่เราสั่งผ่าน API
+     สองกรณีนี้ต้องแยกกันให้ออก ไม่งั้นคำสั่งของเราจะเด้งกลับเป็นคำสั่งซ้ำวนไม่จบ
+     จึงจับเวลาไว้: event ที่มาภายใน SELF_ACTION_MS หลังเราสั่ง = ผลของเราเอง ไม่ต้องส่งต่อ */
+  const SELF_ACTION_MS = 1500;
+
+  function markSelfAction() {
+    selfActionAt = Date.now();
+  }
+
+  function isSelfAction() {
+    return Date.now() - selfActionAt < SELF_ACTION_MS;
   }
 
   function destroyPlayer() {
@@ -440,6 +491,8 @@
 
     if (loadedVideoId !== track.videoId) {
       loadedVideoId = track.videoId;
+      awaitingLoad = true;
+      markSelfAction();
       player.loadVideoById({ videoId: track.videoId, startSeconds: target });
       setTimeout(() => { if (state) applyVolume(wantedVolume()); }, 800);
       return;
@@ -456,9 +509,13 @@
 
     const ps = player.getPlayerState();
     if (state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
+      markSelfAction();
       player.playVideo();
-      // สั่งเล่นแล้วยังไม่ขยับ = เบราว์เซอร์บล็อกเสียงอยู่ แสดง popup แจ้งเตือนทันที
-      if (++blockedTicks >= 1) {
+      /* สั่งเล่นแล้วยังไม่ขยับ = น่าจะโดนบล็อกเสียงอยู่
+         ต้องรอ 2 รอบ (~4 วิ) ก่อนขึ้น popup — รอบเดียวมันเร็วเกินไป
+         จังหวะที่ผู้ใช้เพิ่งกดหยุดเองแล้ว state ฝั่งเซิร์ฟเวอร์ยังตามไม่ทัน
+         จะโดนเหมารวมว่าโดนบล็อกทั้งที่ไม่ใช่ */
+      if (++blockedTicks >= 2) {
         if ($("unblockModal")) $("unblockModal").hidden = false;
         if ($("unblockBtn")) $("unblockBtn").hidden = false;
       }
@@ -467,7 +524,10 @@
       if ($("unblockModal")) $("unblockModal").hidden = true;
       if ($("unblockBtn")) $("unblockBtn").hidden = true;
     }
-    if (!state.playing && ps === YT.PlayerState.PLAYING) player.pauseVideo();
+    if (!state.playing && ps === YT.PlayerState.PLAYING) {
+      markSelfAction();
+      player.pauseVideo();
+    }
   }
 
   // ---------- UI ในห้อง ----------
@@ -485,36 +545,45 @@
     const canControl = isHost || state.openControl;
     $("shuffleBtn").disabled = !canControl || state.queue.length <= 1;
     $("clearQueueBtn").disabled = !canControl || state.queue.length === 0;
-    $("roleBadge").textContent = isHost ? "🔊 เครื่องนี้คือลำโพง" : "🎛 รีโมท (ไม่มีเสียง)";
+    $("roleBadge").textContent = isHost ? "เครื่องนี้คือลำโพง" : "รีโมท (ไม่มีเสียง)";
     $("roleBadge").className = "badge " + (isHost ? "ok" : "");
 
     const host = state.listeners.find((l) => l.host);
     $("remoteWho").textContent = host
       ? "เสียงออกที่เครื่องของ " + host.name
       : "ยังไม่มีเครื่องไหนเป็นลำโพง";
-    const art = track ? "https://i.ytimg.com/vi/" + track.videoId + "/mqdefault.jpg" : "";
-    $("remoteArt").src = art;
-    $("remoteArt").hidden = !track;
+    // ตั้ง src เฉพาะตอนที่เปลี่ยนเพลงจริง ไม่งั้นทุกครั้งที่ render จะสั่งโหลดรูปใหม่
+    const artEl = $("remoteArt");
+    artEl.decoding = "async";
+    if (track) {
+      const art = "https://i.ytimg.com/vi/" + track.videoId + "/mqdefault.jpg";
+      if (artEl.getAttribute("src") !== art) artEl.setAttribute("src", art);
+    } else {
+      artEl.removeAttribute("src");
+    }
+    artEl.hidden = !track;
     $("app").classList[state.playing && track ? "add" : "remove"]("is-playing");
 
     const vol = wantedVolume();
     const muteBtn = $("muteBtn");
     if (muteBtn) {
-      muteBtn.textContent = vol === 0 ? "🔇" : "🔊";
+      // วาด SVG ครั้งเดียวตอนแรก จากนั้นสลับแค่คลาส — CSS เป็นคนซ่อน/โชว์คลื่นเสียงกับขีดทับ
+      if (!muteBtn.firstElementChild) muteBtn.innerHTML = MUTE_ICON;
       muteBtn.classList[vol === 0 ? "add" : "remove"]("is-muted");
+      muteBtn.title = vol === 0 ? "เปิดเสียง (กด M)" : "ปิดเสียง (กด M)";
     }
 
     const rMode = state.repeatMode || "off";
     const rBtn = $("repeatBtn");
     if (rBtn) {
       if (rMode === "one") {
-        rBtn.textContent = "🔂 วนซ้ำเพลงนี้";
+        rBtn.textContent = "วนซ้ำเพลงนี้";
         rBtn.className = "ghost small is-repeat-one";
       } else if (rMode === "all") {
-        rBtn.textContent = "🔁 วนซ้ำคิว";
+        rBtn.textContent = "วนซ้ำคิว";
         rBtn.className = "ghost small is-repeat-all";
       } else {
-        rBtn.textContent = "➡️ ไม่ซ้ำ";
+        rBtn.textContent = "ไม่ซ้ำ";
         rBtn.className = "ghost small";
       }
       rBtn.disabled = !canControl;
@@ -522,7 +591,7 @@
 
     const autoDjBtn = $("autoDjBtn");
     if (autoDjBtn) {
-      autoDjBtn.textContent = state.autoDj ? "🤖 Auto DJ: เปิด" : "🤖 Auto DJ: ปิด";
+      autoDjBtn.textContent = state.autoDj ? "Auto DJ: เปิด" : "Auto DJ: ปิด";
       autoDjBtn.className = state.autoDj ? "ghost small active" : "ghost small";
       autoDjBtn.disabled = !canControl;
     }
@@ -546,7 +615,14 @@
     listeners.innerHTML = "";
     state.listeners.forEach((l) => {
       const li = document.createElement("li");
-      li.textContent = (l.host ? "🔊 " : "🎛 ") + l.name + (l.id === clientId ? " (คุณ)" : "");
+      if (l.host) li.className = "is-speaker";
+      const nm = document.createElement("span");
+      nm.className = "ln";
+      nm.textContent = l.name + (l.id === clientId ? " (คุณ)" : "");
+      const tag = document.createElement("small");
+      tag.className = "role-tag";
+      tag.textContent = l.host ? "ลำโพง" : "รีโมท";
+      li.append(nm, tag);
       listeners.appendChild(li);
     });
   }
@@ -675,10 +751,9 @@
 
       const left = document.createElement("div");
       left.className = "dj-rank-name";
-      const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "#" + (idx + 1);
       const badge = document.createElement("span");
       badge.className = "dj-badge";
-      badge.textContent = medal;
+      badge.textContent = String(idx + 1);
       const djName = document.createElement("span");
       djName.textContent = name;
       left.append(badge, djName);
@@ -1047,6 +1122,7 @@
     if (isHost && player && playerReady) {
       applyVolume(wantedVolume());
       if (player.isMuted && player.isMuted()) player.unMute();
+      markSelfAction();
       player.playVideo();
     }
   }
@@ -1057,6 +1133,9 @@
 
   // ปลดบล็อกเสียงอัตโนมัติทันทีที่ผู้ใช้สัมผัสหรือคลิกตรงไหนก็ได้บนหน้าจอ (User Gesture Auto-unlock)
   document.addEventListener("pointerdown", () => {
+    // เพิ่งมีคำสั่ง play/pause ของเราเองค้างอยู่ อย่าเพิ่งไปสั่งเล่นทับ
+    // ไม่งั้นจังหวะที่ผู้ใช้กดหยุดในกรอบ YouTube แล้วมาแตะหน้าจอ เพลงจะเด้งกลับมาเล่น
+    if (isSelfAction()) return;
     if (isHost && player && playerReady) {
       if (blockedTicks > 0 || ($("unblockModal") && !$("unblockModal").hidden)) {
         unlockAudio();

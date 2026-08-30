@@ -1,98 +1,114 @@
-/* SynTech Music — ธีมมืดแบบ aurora glass
-   ออกแบบให้ใช้ได้ตั้งแต่มือถือ 320px ไปจนถึงจอกว้าง โดยไม่มีสกอลล์แนวนอน */
+/* SynTech Music — ธีมมืดโทนเขียว-ทอง
+   เป้าหมาย: อ่านง่าย กดง่าย และเบาเครื่อง
 
-/* ============ 1. โทเคน ============ */
+   หลักการเรื่องความเบาที่ยึดทั้งไฟล์
+   1) พื้นผิวใช้สีทึบ (solid) แทนการซ้อน gradient หลายชั้น — ลดงานวาดของ GPU
+   2) เงาใช้ชั้นเดียว เบลอไม่เกิน ~34px — เงาเบลอกว้างคือตัวกินเฟรมตัวจริง
+   3) transition ระบุชื่อ property เสมอ ไม่ใช้ transition: all
+   4) แอนิเมชันวนไม่รู้จบมีเฉพาะตอนเพลงเล่นอยู่ (.is-playing) เท่านั้น
+   5) ไม่ใช้ backdrop-filter และไม่ใช้ filter กับสิ่งที่ขยับ
+   6) เอฟเฟกต์ hover ห่อไว้ใน @media (hover: hover) — มือถือไม่ต้องแบก */
+
+/* ============ 1. โทเคนสี ขนาด และจังหวะ ============ */
 :root {
   color-scheme: dark;
 
-  --bg: #060b08;
-  --bg-soft: #0a120e;
-  --surface: rgba(46, 157, 104, .06);
-  --surface-2: rgba(46, 157, 104, .12);
-  --surface-3: rgba(244, 188, 18, .15);
-  --line: rgba(46, 157, 104, .18);
-  --line-2: rgba(244, 188, 18, .32);
+  /* พื้นหลังและพื้นผิว — สีทึบล้วน วาดเร็วกว่า rgba ซ้อนกันหลายชั้น */
+  --bg: #070d0a;
+  --surface: #0e1a14;
+  --surface-2: #132218;
+  --surface-3: #1a2e21;
+  --sunken: #060b08;
 
-  --text: #f0f7f3;
-  --muted: #8ca398;
+  --line: #1e3328;
+  --line-strong: #2c4a37;
+  --line-gold: rgba(244, 188, 18, .34);
 
-  --syn-green: #276B4D;
-  --syn-green-bright: #2E9D68;
-  --syn-mint: #3ebd83;
+  /* ตัวอักษร — ยก --muted ให้สว่างกว่าเดิม อ่านสบายตาขึ้นชัดเจน */
+  --text: #eef6f1;
+  --muted: #a3bab0;
+  --muted-soft: #7e948a;
 
-  --tech-yellow: #F4BC12;
-  --tech-gold: #FFD12E;
-
+  /* สีแบรนด์ */
   --accent: #2E9D68;
-  --accent-2: #3ebd83;
+  --accent-2: #46cf90;
   --accent-3: #F4BC12;
+  --gold-soft: #ffd75e;
   --warn: #F4BC12;
-  --danger: #ff5e78;
+  --danger: #ff6b81;
 
-  --grad: linear-gradient(110deg, #1b5b3e 0%, #2E9D68 45%, #F4BC12 100%);
+  --grad: linear-gradient(100deg, #2E9D68 0%, #46cf90 46%, #F4BC12 100%);
 
-  --r-xl: 22px;
-  --r-lg: 16px;
-  --r-md: 12px;
+  /* มุมโค้ง — มนขึ้นเล็กน้อยเพื่อให้ดูเป็นมิตร ไม่แข็ง */
+  --r-xl: 20px;
+  --r-lg: 15px;
+  --r-md: 11px;
   --r-sm: 9px;
+  --r-pill: 999px;
 
-  --pad: clamp(.9rem, 2.2vw, 1.35rem);
-  --gap: clamp(.75rem, 1.6vw, 1.15rem);
+  --pad: clamp(.95rem, 2.2vw, 1.4rem);
+  --gap: clamp(.8rem, 1.6vw, 1.15rem);
 
-  --shadow-lg: 0 26px 64px -25px rgba(0, 0, 0, 0.95), 0 0 50px -15px rgba(46, 157, 104, 0.2);
-  --shadow-sm: 0 8px 24px -14px rgba(0, 0, 0, .9);
-  --ring: 0 0 0 3px rgba(46, 157, 104, .45);
-  --ring-yellow: 0 0 0 3px rgba(244, 188, 18, .45);
+  /* เงา — ชั้นเดียว เบลอแคบ */
+  --shadow-lg: 0 14px 34px -18px rgba(0, 0, 0, .95);
+  --shadow-md: 0 8px 20px -14px rgba(0, 0, 0, .9);
+
   --ease: cubic-bezier(.22, .7, .25, 1);
+  --t-fast: .14s;
+  --t: .2s;
 }
 
 /* ============ 2. พื้นฐาน ============ */
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-/* ต้องมี: .gate ตั้ง display เอง จะทับกฎ [hidden] ของเบราว์เซอร์ */
+/* ต้องมี: หลายบล็อกตั้ง display เอง จะทับกฎ [hidden] ของเบราว์เซอร์ */
 [hidden] {
   display: none !important;
 }
 
 html {
-  font-size: clamp(14.5px, .28vw + 13.8px, 16.5px);
+  font-size: clamp(15px, .28vw + 14.2px, 17px);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
-/* ============ 3. พื้นหลัง (Ultra Lightweight Cyber Dark) ============ */
 body {
   margin: 0;
   min-height: 100dvh;
   overflow-x: hidden;
-  background:
-    radial-gradient(100% 70% at 50% -10%, #0d281c 0%, #060b08 70%),
-    #060b08;
+  /* gradient ชั้นเดียว คงที่ ไม่ขยับ = วาดครั้งเดียวจบ */
+  background: radial-gradient(120% 60% at 50% 0%, #0d2318 0%, var(--bg) 62%) fixed, var(--bg);
   color: var(--text);
   font-family: "Sarabun", "Segoe UI", system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
-  background: rgba(46, 157, 104, .38);
+  background: rgba(46, 157, 104, .4);
 }
 
 :where(a) {
   color: var(--accent-3);
 }
 
+img {
+  max-width: 100%;
+}
+
 /* สกอลล์บาร์บางให้เข้ากับธีม */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(46, 157, 104, .25) transparent;
+  scrollbar-color: #24402f transparent;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 
 ::-webkit-scrollbar-track {
@@ -100,37 +116,48 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(46, 157, 104, .2);
-  border-radius: 999px;
+  background: #24402f;
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(244, 188, 18, .35);
+  background: #33604a;
+  background-clip: padding-box;
 }
 
+/* วงโฟกัสชัด มองเห็นได้ทุกพื้นหลัง — สำคัญกับคนที่ใช้คีย์บอร์ด */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
-/* ============ 4. ตัวอักษรและตัวช่วย ============ */
+/* ============ 3. ตัวอักษรและตัวช่วย ============ */
 h1 {
   font-size: clamp(1.4rem, 3.4vw, 1.75rem);
   margin: 0;
   letter-spacing: -.02em;
-  background: var(--grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 
+/* หัวข้อกล่อง — เดิมเป็นตัวพิมพ์ใหญ่สีจางอ่านยาก เปลี่ยนเป็นข้อความปกติสีเต็ม */
 h2 {
-  font-size: .82rem;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .95rem;
   font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
   margin: 0;
+}
+
+h2 .muted {
+  font-weight: 500;
+  font-size: .82rem;
+  color: var(--muted-soft);
 }
 
 p {
@@ -147,14 +174,14 @@ p {
 }
 
 .hint {
-  color: var(--muted);
-  font-size: .78rem;
+  color: var(--muted-soft);
+  font-size: .79rem;
   margin: .55rem 0 0;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .tiny {
-  font-size: .72rem;
+  font-size: .74rem;
 }
 
 .spacer {
@@ -163,119 +190,167 @@ p {
 
 .lede {
   color: var(--muted);
-  font-size: .85rem;
-  margin: .7rem 0 0;
+  font-size: .88rem;
+  margin: .75rem 0 0;
 }
 
-/* ============ 5. ฟอร์มและปุ่ม ============ */
+/* ============ 4. ฟอร์ม ============ */
 input[type="text"],
 input:not([type]) {
   width: 100%;
-  padding: .72rem .95rem;
+  min-height: 44px;
+  padding: .7rem .95rem;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
-  background: rgba(0, 0, 0, .42);
+  background: var(--sunken);
   color: var(--text);
   font: inherit;
-  transition: border-color .2s, box-shadow .2s, background .2s;
+  transition: border-color var(--t), background-color var(--t);
 }
 
 input::placeholder {
-  color: #5f7569;
+  color: #6d857a;
 }
 
-input:hover {
-  border-color: var(--line-2);
+@media (hover: hover) {
+  input:hover {
+    border-color: var(--line-strong);
+  }
 }
 
 input:focus {
   outline: none;
-  border-color: var(--accent-3);
-  box-shadow: 0 0 0 3px rgba(244, 188, 18, 0.25), 0 0 18px rgba(46, 157, 104, 0.25);
-  background: rgba(0, 0, 0, .58);
+  border-color: var(--accent-2);
+  background: #04140c;
 }
 
+input:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+
+/* ============ 5. ปุ่ม ============ */
+/* min-height 40px+ ทุกปุ่ม — นิ้วโป้งกดติดตั้งแต่ครั้งแรก */
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-height: 40px;
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text);
   border-radius: var(--r-md);
-  padding: .58rem .95rem;
+  padding: .5rem 1rem;
   font: inherit;
+  line-height: 1.3;
   cursor: pointer;
-  transition: transform .16s var(--ease), background .18s, border-color .18s, box-shadow .18s, color .18s;
+  transition: background-color var(--t), border-color var(--t), color var(--t), transform var(--t-fast) var(--ease);
 }
 
-button:hover {
-  background: var(--surface-3);
-  border-color: var(--line-2);
+@media (hover: hover) {
+  button:hover:not(:disabled) {
+    background: var(--surface-3);
+    border-color: var(--line-strong);
+  }
 }
 
-button:active {
-  transform: scale(.96);
+button:active:not(:disabled) {
+  transform: scale(.97);
 }
 
+/* ปุ่มหลัก — ไล่สีแบรนด์ ตัวอักษรเข้มเพื่อคอนทราสต์สูง */
 button.primary {
   position: relative;
   overflow: hidden;
   background: var(--grad);
   border-color: transparent;
-  color: #060b08;
+  color: #06130c;
   font-weight: 700;
-  box-shadow: 0 10px 30px -12px rgba(244, 188, 18, .5), 0 4px 16px -4px rgba(46, 157, 104, .5);
-  transition: transform .18s var(--ease), box-shadow .22s, filter .2s;
+  box-shadow: 0 8px 18px -12px rgba(244, 188, 18, .8);
+  transition: box-shadow var(--t), transform var(--t-fast) var(--ease), filter var(--t);
 }
 
-button.primary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
-  transform: translateX(-100%) skewX(-15deg);
-  transition: transform .6s var(--ease);
-}
+/* ประกายวิ่งผ่านตอนชี้เมาส์ — เฉพาะเครื่องที่มีเมาส์จริง และหยุดนิ่งเมื่อไม่ได้ชี้ */
+@media (hover: hover) {
+  button.primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent);
+    transform: translateX(-100%) skewX(-14deg);
+    transition: transform .55s var(--ease);
+  }
 
-button.primary:hover::after {
-  transform: translateX(100%) skewX(-15deg);
-}
+  button.primary:hover:not(:disabled)::after {
+    transform: translateX(100%) skewX(-14deg);
+  }
 
-button.primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 36px -10px rgba(244, 188, 18, .75), 0 6px 20px -4px rgba(46, 157, 104, .6);
-  filter: brightness(1.06);
+  button.primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -12px rgba(244, 188, 18, .95);
+    filter: brightness(1.05);
+  }
 }
 
 button.ghost {
   background: transparent;
   color: var(--muted);
+  border-color: var(--line);
 }
 
-button.ghost:hover {
-  background: var(--surface);
-  color: var(--text);
+@media (hover: hover) {
+  button.ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
 }
 
-button.ghost.danger:hover {
-  color: var(--danger);
-  border-color: rgba(255, 94, 120, .45);
-}
-
+/* ปุ่มเม็ดเล็ก — ห้ามตัดคำกลางปุ่ม ให้ไปขึ้นบรรทัดใหม่ทั้งปุ่มแทน (.panel-acts wrap ให้อยู่แล้ว) */
 button.small {
-  padding: .3rem .6rem;
+  min-height: 32px;
+  padding: .3rem .7rem;
+  font-size: .78rem;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
+button.tiny {
+  min-height: 30px;
+  padding: .26rem .7rem;
   font-size: .76rem;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
 }
 
 button.big {
+  min-height: 50px;
   padding: .85rem 1.2rem;
-  font-size: .98rem;
+  font-size: 1rem;
   border-radius: var(--r-lg);
 }
 
 button:disabled {
-  opacity: .45;
+  opacity: .4;
   cursor: not-allowed;
   transform: none;
+}
+
+button.ghost.danger,
+.ghost.small.danger {
+  color: #ff8a9c;
+  border-color: rgba(255, 107, 129, .26);
+}
+
+@media (hover: hover) {
+
+  button.ghost.danger:hover:not(:disabled),
+  .ghost.small.danger:hover:not(:disabled) {
+    background: rgba(255, 107, 129, .14);
+    border-color: rgba(255, 107, 129, .5);
+    color: #ffa3b1;
+  }
 }
 
 /* แถบเลื่อนเสียง — วาดเองทั้งราง หัวจับ และส่วนที่เติมแล้ว */
@@ -283,58 +358,55 @@ input[type="range"] {
   --fill: 70%;
   -webkit-appearance: none;
   appearance: none;
-  width: 120px;
-  height: 26px;
+  width: 130px;
+  height: 28px;
   background: transparent;
   cursor: pointer;
   touch-action: none;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--grad) 0 / var(--fill) 100% no-repeat, rgba(255, 255, 255, .13);
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--grad) 0 / var(--fill) 100% no-repeat, #1d3428;
 }
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  margin-top: -5px;
+  width: 18px;
+  height: 18px;
+  margin-top: -5.5px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(46, 157, 104, .35), 0 2px 8px rgba(0, 0, 0, .7);
-  transition: box-shadow .18s, transform .14s var(--ease);
+  box-shadow: 0 0 0 3px rgba(46, 157, 104, .45);
+  transition: box-shadow var(--t), transform var(--t-fast) var(--ease);
 }
 
-input[type="range"]:hover::-webkit-slider-thumb {
-  transform: scale(1.15);
-  box-shadow: 0 0 0 5px rgba(244, 188, 18, .45), 0 2px 8px rgba(0, 0, 0, .7);
-}
-
+input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:active::-webkit-slider-thumb {
-  box-shadow: 0 0 0 7px rgba(244, 188, 18, .55), 0 2px 8px rgba(0, 0, 0, .7);
+  transform: scale(1.12);
+  box-shadow: 0 0 0 5px rgba(244, 188, 18, .45);
 }
 
 input[type="range"]::-moz-range-track {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .13);
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: #1d3428;
 }
 
 input[type="range"]::-moz-range-progress {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-2);
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
   border: 0;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(46, 157, 104, .35);
+  box-shadow: 0 0 0 3px rgba(46, 157, 104, .45);
 }
 
 /* ============ 6. ป้ายสถานะ ============ */
@@ -342,9 +414,9 @@ input[type="range"]::-moz-range-thumb {
   display: inline-flex;
   align-items: center;
   gap: .38rem;
-  font-size: .74rem;
-  padding: .28rem .68rem;
-  border-radius: 999px;
+  font-size: .77rem;
+  padding: .3rem .75rem;
+  border-radius: var(--r-pill);
   background: var(--surface-2);
   color: var(--muted);
   border: 1px solid var(--line);
@@ -353,26 +425,30 @@ input[type="range"]::-moz-range-thumb {
 
 .badge.ok {
   color: var(--accent-2);
-  border-color: rgba(62, 189, 131, .35);
-  background: rgba(46, 157, 104, .14);
+  border-color: rgba(70, 207, 144, .38);
+  background: rgba(46, 157, 104, .16);
 }
 
 .badge.warn {
   color: var(--warn);
-  border-color: rgba(244, 188, 18, .35);
-  background: rgba(244, 188, 18, .12);
+  border-color: var(--line-gold);
+  background: rgba(244, 188, 18, .13);
 }
 
+/* จุดสถานะ — เต้นเฉพาะตอนเพลงเล่นจริง เวลาอื่นอยู่นิ่ง ไม่กินเครื่อง */
 .status-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  background: var(--muted-soft);
+  transition: background-color var(--t);
+}
+
+#app.is-playing .status-dot {
   background: var(--accent-2);
-  box-shadow: 0 0 8px var(--accent-2);
-  animation: statusPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  will-change: transform, opacity;
-  transform: translateZ(0);
+  animation: statusPulse 2s ease-in-out infinite;
 }
 
 @keyframes statusPulse {
@@ -384,8 +460,8 @@ input[type="range"]::-moz-range-thumb {
   }
 
   50% {
-    opacity: .35;
-    transform: scale(0.75);
+    opacity: .4;
+    transform: scale(.72);
   }
 }
 
@@ -399,15 +475,19 @@ input[type="range"]::-moz-range-thumb {
 
 .warnbtn {
   background: rgba(244, 188, 18, .14);
-  border: 1px solid rgba(244, 188, 18, .35);
+  border: 1px solid var(--line-gold);
   color: var(--warn);
-  border-radius: var(--r-sm);
-  font-size: .78rem;
-  padding: .35rem .7rem;
+  border-radius: var(--r-pill);
+  font-size: .8rem;
+  font-weight: 600;
+  min-height: 34px;
+  padding: .35rem .85rem;
 }
 
-.warnbtn:hover {
-  background: rgba(244, 188, 18, .22);
+@media (hover: hover) {
+  .warnbtn:hover {
+    background: rgba(244, 188, 18, .22);
+  }
 }
 
 /* ============ 7. หน้าเข้าห้อง ============ */
@@ -423,54 +503,61 @@ input[type="range"]::-moz-range-thumb {
 
 .gate-card {
   position: relative;
-  width: min(440px, 100%);
+  width: min(450px, 100%);
   min-width: 0;
   margin: auto;
-  background: #0c1812;
-  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--r-xl);
-  padding: clamp(1.2rem, 3.4vw, 1.7rem);
+  padding: clamp(1.25rem, 3.4vw, 1.8rem);
   box-shadow: var(--shadow-lg);
+  animation: rise .3s var(--ease) both;
 }
 
+/* เส้นเรืองแสงบางๆ ที่ขอบบน — คงที่ ไม่ขยับ */
 .gate-card::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 10%;
-  right: 10%;
+  left: 12%;
+  right: 12%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(244, 188, 18, 0.6), rgba(46, 157, 104, 0.6), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent-3), var(--accent), transparent);
+  opacity: .65;
   pointer-events: none;
 }
 
 .gate-card label {
   display: block;
-  font-size: .76rem;
+  font-size: .8rem;
   font-weight: 600;
-  letter-spacing: .03em;
-  color: var(--muted);
-  margin: 1.1rem 0 .35rem;
+  color: var(--text);
+  margin: 1.3rem 0 .45rem;
 }
 
 .gate-card .primary {
   width: 100%;
-  margin-top: 1.1rem;
-  display: grid;
-  gap: .1rem;
+  margin-top: 1.2rem;
+  flex-direction: column;
+  gap: .12rem;
+  padding-block: .8rem;
+}
+
+.gate-card .primary span {
+  font-size: 1rem;
 }
 
 .gate-card .primary small {
   font-weight: 500;
-  font-size: .72rem;
-  opacity: .85;
+  font-size: .74rem;
+  opacity: .82;
 }
 
 .brand {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: .35rem;
+  gap: .4rem;
 }
 
 .brand-logo-wrap {
@@ -482,64 +569,37 @@ input[type="range"]::-moz-range-thumb {
 .brand-logo-img {
   height: 44px;
   width: auto;
-  filter: drop-shadow(0 4px 14px rgba(46, 157, 104, .35));
 }
 
+/* ป้าย MUSIC — ไล่สีคงที่ ไม่มีประกายวิ่งวนตลอดเวลาแบบเดิม (ตัวกินเฟรมเงียบๆ) */
 .music-pill {
-  position: relative;
-  overflow: hidden;
   font-size: .72rem;
   font-weight: 800;
   letter-spacing: .14em;
-  padding: .2rem .55rem;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #F4BC12 0%, #FFD12E 60%, #e5a800 100%);
-  color: #060b08;
-  box-shadow: 0 4px 14px rgba(244, 188, 18, .45), 0 0 20px rgba(244, 188, 18, .2);
-}
-
-.music-pill::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: 0;
-  width: 40%;
-  height: 200%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
-  transform: rotate(25deg) translateX(-180%);
-  animation: goldShimmer 4.5s ease-in-out infinite;
-  will-change: transform;
-}
-
-@keyframes goldShimmer {
-
-  0%,
-  75% {
-    transform: rotate(25deg) translateX(-180%);
-  }
-
-  100% {
-    transform: rotate(25deg) translateX(380%);
-  }
+  padding: .22rem .58rem;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--gold-soft) 0%, var(--accent-3) 55%, #dfa500 100%);
+  color: #06130c;
+  box-shadow: 0 4px 12px -6px rgba(244, 188, 18, .85);
 }
 
 .music-pill.sm {
   font-size: .62rem;
-  padding: .12rem .4rem;
-  border-radius: 5px;
+  padding: .12rem .42rem;
+  border-radius: 6px;
+  letter-spacing: .1em;
 }
 
 .head-brand {
   display: flex;
   align-items: center;
   gap: .45rem;
-  margin-right: .2rem;
+  margin-right: .25rem;
 }
 
 .head-logo-img {
   height: 26px;
   width: auto;
-  filter: drop-shadow(0 2px 8px rgba(46, 157, 104, .3));
 }
 
 .rooms-head {
@@ -550,7 +610,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .rooms-head label {
-  margin-bottom: .4rem;
+  margin-bottom: .45rem;
 }
 
 .room-list {
@@ -559,47 +619,50 @@ input[type="range"]::-moz-range-thumb {
   gap: .5rem;
   max-height: min(38vh, 300px);
   overflow: auto;
-  padding-right: 2px;
+  padding-right: 3px;
 }
 
 .room-card {
   position: relative;
   display: grid;
-  gap: .35rem;
+  /* ระบุคอลัมน์ให้ชัด ไม่งั้น justify-content: center ที่ติดมาจากกฎ button
+     จะบีบคอลัมน์ให้เท่าความกว้างข้อความแล้วดันไปกลางการ์ด */
+  grid-template-columns: minmax(0, 1fr);
+  gap: .3rem;
   text-align: left;
   width: 100%;
+  min-height: 62px;
   padding: .75rem .9rem;
-  background: rgba(0, 0, 0, .38);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  animation: rise .35s var(--ease) both;
-  transition: all .24s var(--ease);
+  transition: background-color var(--t), border-color var(--t), transform var(--t-fast) var(--ease);
 }
 
+/* ขีดสีด้านซ้าย บอกว่าการ์ดนี้กดเข้าห้องได้ */
 .room-card::before {
   content: "";
   position: absolute;
-  top: 15%;
-  bottom: 15%;
+  top: 18%;
+  bottom: 18%;
   left: 0;
   width: 3px;
   border-radius: 0 4px 4px 0;
   background: var(--accent-3);
   opacity: 0;
-  transition: opacity .2s, transform .2s;
-  transform: scaleY(0.4);
+  transition: opacity var(--t);
 }
 
-.room-card:hover::before {
-  opacity: 1;
-  transform: scaleY(1);
-}
+@media (hover: hover) {
+  .room-card:hover {
+    border-color: var(--line-gold);
+    background: var(--surface-2);
+    transform: translateY(-1px);
+  }
 
-.room-card:hover {
-  border-color: rgba(244, 188, 18, 0.45);
-  background: linear-gradient(90deg, rgba(46, 157, 104, 0.16), rgba(244, 188, 18, 0.08));
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.8), 0 0 20px rgba(46, 157, 104, 0.15);
+  .room-card:hover::before {
+    opacity: 1;
+  }
 }
 
 .room-top {
@@ -611,13 +674,13 @@ input[type="range"]::-moz-range-thumb {
 
 .room-top strong {
   letter-spacing: .16em;
-  font-size: 1rem;
+  font-size: 1.02rem;
 }
 
 .room-top small,
 .room-now {
   color: var(--muted);
-  font-size: .73rem;
+  font-size: .75rem;
 }
 
 .room-now {
@@ -626,12 +689,18 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 
+/* ยังไม่เจอห้อง — บอกให้ชัดว่าทำอะไรต่อ ดีกว่าปล่อยกล่องว่างเปล่า */
 .room-list:empty::after {
-  content: "";
-  display: block;
-  height: 54px;
+  content: "ยังไม่เจอห้องที่เปิดอยู่ — กดปุ่มสร้างห้องใหม่ด้านล่างได้เลย";
+  display: grid;
+  place-items: center;
+  padding: 1.1rem .8rem;
+  text-align: center;
+  font-size: .78rem;
+  line-height: 1.6;
+  color: var(--muted-soft);
+  border: 1px dashed var(--line-strong);
   border-radius: var(--r-md);
-  border: 1px dashed var(--line);
 }
 
 /* ============ 8. หัวหน้าจอ ============ */
@@ -648,25 +717,26 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: .7rem 1rem;
+  gap: .6rem 1rem;
   flex-wrap: wrap;
-  padding: .7rem var(--pad);
+  padding: .65rem var(--pad);
   border-bottom: 1px solid var(--line);
-  background: #09130e;
+  background: var(--surface);
 }
 
 header .label {
-  color: var(--muted);
-  font-size: .74rem;
+  color: var(--muted-soft);
+  font-size: .76rem;
 }
 
 header strong {
   letter-spacing: .18em;
   font-size: 1rem;
-  padding: .18rem .55rem;
+  padding: .2rem .6rem;
   border-radius: var(--r-sm);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
+  background: var(--sunken);
+  border: 1px solid var(--line-strong);
+  color: var(--accent-3);
 }
 
 .head-left,
@@ -693,30 +763,26 @@ header strong {
   margin-inline: auto;
 }
 
-.player-wrap,
-aside {
+.player-wrap {
   position: relative;
-  background: linear-gradient(175deg, rgba(13, 23, 18, 0.75), rgba(6, 11, 8, 0.85));
+  overflow: hidden;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow-sm);
-  transition: border-color .3s, box-shadow .3s;
+  box-shadow: var(--shadow-md);
 }
 
-.player-wrap::before,
-aside::before {
+.player-wrap::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 8%;
-  right: 8%;
+  left: 10%;
+  right: 10%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(46, 157, 104, 0.4), rgba(244, 188, 18, 0.4), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-3), transparent);
+  opacity: .5;
   pointer-events: none;
-}
-
-.player-wrap {
-  overflow: hidden;
+  z-index: 2;
 }
 
 .player-inner {
@@ -724,15 +790,14 @@ aside::before {
   padding: var(--pad);
 }
 
+/* แถบข้างเป็นแค่คอนเทนเนอร์ — ให้แต่ละ .panel เป็นการ์ดของตัวเอง แยกกลุ่มได้ชัดกว่าเดิม */
 aside {
-  padding: var(--pad);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.1rem;
+  gap: var(--gap);
   align-content: start;
+  min-width: 0;
 }
-
-
 
 #playerStage {
   position: relative;
@@ -742,7 +807,6 @@ aside {
   background: #000;
   border-radius: var(--r-lg);
   overflow: hidden;
-  box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 1);
 }
 
 #playerStage iframe,
@@ -757,20 +821,21 @@ aside {
   z-index: 1;
 }
 
-/* ---- โหมดรีโมท ---- */
+/* ---- โหมดรีโมท (เครื่องที่ไม่ใช่ลำโพง) — วางเต็มกรอบ 16:9 แทนที่วิดีโอ ---- */
 .remote {
+  position: absolute;
+  inset: 0;
   display: flex;
   gap: 1rem;
   align-items: center;
-  background: rgba(0, 0, 0, .3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  justify-content: center;
   padding: 1rem;
+  background: var(--surface-2);
 }
 
 .remote-art {
   position: relative;
-  width: clamp(96px, 30%, 170px);
+  width: clamp(96px, 34%, 200px);
   flex-shrink: 0;
   aspect-ratio: 16 / 9;
   border-radius: var(--r-md);
@@ -782,8 +847,8 @@ aside {
 
 .remote-art::after {
   content: "♪";
-  font-size: 1.6rem;
-  color: rgba(7, 16, 31, .55);
+  font-size: 1.8rem;
+  color: rgba(6, 19, 12, .55);
 }
 
 .remote-art img {
@@ -812,12 +877,12 @@ aside {
   display: flex;
   align-items: center;
   gap: .7rem;
-  margin: 1rem 0 .55rem;
+  margin: 1.1rem 0 .6rem;
 }
 
 .now-title {
   font-weight: 600;
-  font-size: clamp(.95rem, 2.2vw, 1.08rem);
+  font-size: clamp(.98rem, 2.2vw, 1.1rem);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -825,25 +890,33 @@ aside {
   white-space: nowrap;
 }
 
+/* ลิงก์ไป YouTube — เดิม CSS เขียน a.yt แต่ HTML ใช้ .yt-link จึงไม่เคยติดสไตล์ */
+.yt-link,
 a.yt {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: .3rem .6rem;
-  font-size: .74rem;
+  border-radius: var(--r-pill);
+  padding: .28rem .7rem;
+  font-size: .75rem;
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: border-color .18s, color .18s, background .18s;
+  transition: border-color var(--t), color var(--t), background-color var(--t);
 }
 
-a.yt:hover {
-  border-color: var(--accent);
-  color: var(--text);
-  background: var(--surface);
+@media (hover: hover) {
+
+  .yt-link:hover,
+  a.yt:hover {
+    border-color: var(--accent);
+    color: var(--text);
+    background: var(--surface-2);
+  }
 }
 
-/* กราฟอีควอไลเซอร์ ขยับเฉพาะตอนเล่นจริง */
+/* กราฟอีควอไลเซอร์ — ขยับแค่ transform (GPU ล้วน) และเฉพาะตอนเล่นจริง */
 .eq {
   display: flex;
   align-items: flex-end;
@@ -856,12 +929,11 @@ a.yt:hover {
   width: 3.5px;
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(180deg, #F4BC12 0%, #2E9D68 100%);
+  background: linear-gradient(180deg, var(--accent-3), var(--accent));
   transform-origin: bottom;
-  transform: scaleY(.35);
-  opacity: .4;
-  transition: transform .3s var(--ease), opacity .3s;
-  will-change: transform;
+  transform: scaleY(.25);
+  opacity: .35;
+  transition: transform var(--t), opacity var(--t);
 }
 
 #app.is-playing .eq i {
@@ -869,11 +941,11 @@ a.yt:hover {
 }
 
 #app.is-playing .eq i:nth-child(1) {
-  animation: eq 0.85s ease-in-out infinite;
+  animation: eq .85s ease-in-out infinite;
 }
 
 #app.is-playing .eq i:nth-child(2) {
-  animation: eq 0.65s ease-in-out infinite .15s;
+  animation: eq .65s ease-in-out infinite .15s;
 }
 
 #app.is-playing .eq i:nth-child(3) {
@@ -881,11 +953,11 @@ a.yt:hover {
 }
 
 #app.is-playing .eq i:nth-child(4) {
-  animation: eq 0.75s ease-in-out infinite .1s;
+  animation: eq .75s ease-in-out infinite .1s;
 }
 
 #app.is-playing .eq i:nth-child(5) {
-  animation: eq 0.95s ease-in-out infinite .25s;
+  animation: eq .95s ease-in-out infinite .25s;
 }
 
 @keyframes eq {
@@ -902,29 +974,28 @@ a.yt:hover {
 
 /* ---- แถบเวลา ---- */
 .bar-wrap {
-  padding: 7px 0;
+  padding: 9px 0;
   cursor: pointer;
 }
 
 .bar {
   position: relative;
-  height: 6px;
-  background: rgba(255, 255, 255, .12);
-  border-radius: 999px;
+  height: 7px;
+  background: #1d3428;
+  border-radius: var(--r-pill);
   cursor: pointer;
-  transition: height .16s var(--ease);
+  transition: height var(--t-fast) var(--ease);
 }
 
 .bar-wrap:hover .bar {
-  height: 10px;
+  height: 11px;
 }
 
 #progress {
   height: 100%;
   width: 0;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--grad);
-  box-shadow: 0 0 14px -2px rgba(244, 188, 18, .9);
   transition: width .25s linear;
   position: relative;
 }
@@ -932,15 +1003,14 @@ a.yt:hover {
 #progress::after {
   content: "";
   position: absolute;
-  right: -5px;
+  right: -6px;
   top: 50%;
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: #fff;
   transform: translateY(-50%) scale(0);
-  transition: transform .16s var(--ease);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .7);
+  transition: transform var(--t-fast) var(--ease);
 }
 
 .bar-wrap:hover #progress::after {
@@ -951,55 +1021,59 @@ a.yt:hover {
 .controls {
   display: flex;
   align-items: center;
-  gap: .5rem;
-  margin-top: .85rem;
+  gap: .55rem;
+  margin-top: .9rem;
   flex-wrap: wrap;
 }
 
 .controls .tbtn {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
   padding: 0;
-  display: grid;
-  place-items: center;
   border-radius: 50%;
-  font-size: 1rem;
+  font-size: 1.05rem;
   line-height: 1;
 }
 
 .controls #playBtn {
   position: relative;
-  width: 56px;
-  height: 56px;
-  font-size: 1.25rem;
-  padding-left: .1em;
+  width: 58px;
+  height: 58px;
+  min-height: 58px;
+  font-size: 1.3rem;
+  padding-left: .08em;
   z-index: 1;
 }
 
+/* วงเรืองแสงรอบปุ่มเล่น — เฉพาะตอนเล่น และขยับแค่ transform/opacity */
 #app.is-playing .controls #playBtn::before {
   content: "";
   position: absolute;
   inset: -2px;
   border-radius: 50%;
   background: var(--grad);
-  opacity: 0.65;
+  opacity: .6;
   z-index: -1;
   pointer-events: none;
-  animation: pulseGlow 2.4s cubic-bezier(0.2, 0.8, 0.4, 1) infinite;
-  will-change: transform, opacity;
+  animation: pulseGlow 2.4s cubic-bezier(.2, .8, .4, 1) infinite;
 }
 
 @keyframes pulseGlow {
   0% {
     transform: scale(1);
-    opacity: 0.65;
+    opacity: .6;
   }
 
   70%,
   100% {
-    transform: scale(1.38);
+    transform: scale(1.34);
     opacity: 0;
   }
+}
+
+#timeLabel {
+  font-size: .84rem;
 }
 
 .vol-wrap {
@@ -1025,89 +1099,418 @@ a.yt:hover {
 
 #volLabel {
   display: inline-block;
-  width: 2.5rem;
+  width: 2.4rem;
   text-align: right;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 
-/* ============ 10. แถบข้าง ============ */
-.panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: .5rem;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem;
-}
-
-.panel-acts {
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-}
-
-.ghost.small.danger {
-  color: #ff6b6b;
-  border-color: rgba(255, 107, 107, .25);
-}
-
-.ghost.small.danger:hover:not(:disabled) {
-  background: rgba(255, 107, 107, .15);
-  border-color: rgba(255, 107, 107, .5);
-  color: #ff8787;
-}
-
 .mute-btn {
   background: transparent;
   border: 0;
-  padding: .2rem;
-  font-size: .95rem;
-  cursor: pointer;
-  border-radius: var(--r-sm);
-  transition: transform .16s, opacity .16s;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  border-radius: 50%;
+  transition: background-color var(--t), color var(--t);
 }
 
-.mute-btn:hover {
-  transform: scale(1.15);
+.mute-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ปกติ: โชว์คลื่นเสียง ซ่อนขีดทับ — ปิดเสียง: สลับกัน */
+.mute-btn .slash {
+  display: none;
+}
+
+.mute-btn.is-muted .wave {
+  display: none;
+}
+
+.mute-btn.is-muted .slash {
+  display: inline;
+}
+
+@media (hover: hover) {
+  .mute-btn:hover {
+    background: var(--surface-2);
+  }
 }
 
 .mute-btn.is-muted {
-  opacity: .5;
+  color: var(--muted-soft);
+}
+
+/* บรรทัดคำใบ้ใต้ปุ่มควบคุม — ทำเป็นแถวยืดหยุ่นเพื่อให้ป้ายคีย์ลัดดันไปชิดขวาได้ */
+.player-inner .hint {
+  display: flex;
+  align-items: center;
+  gap: .5rem .75rem;
+  flex-wrap: wrap;
 }
 
 .keys-badge {
   display: inline-flex;
   align-items: center;
   gap: .25rem;
-  color: var(--muted);
-  font-size: .72rem;
+  color: var(--muted-soft);
+  font-size: .74rem;
   margin-left: auto;
   cursor: help;
-  opacity: .85;
-  transition: opacity .16s;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: .12rem .6rem;
+  transition: color var(--t), border-color var(--t);
 }
 
-.keys-badge:hover {
-  opacity: 1;
-  color: var(--accent-3);
+@media (hover: hover) {
+  .keys-badge:hover {
+    color: var(--accent-3);
+    border-color: var(--line-gold);
+  }
+}
+
+/* ============ 10. การ์ดในแถบข้าง ============ */
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: .65rem;
+  min-width: 0;
+  padding: var(--pad);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-md);
+  /* กันไม่ให้การจัดหน้าในการ์ดหนึ่งลามไปคำนวณใหม่ทั้งหน้า */
+  contain: layout style;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+
+.panel-acts {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
 }
 
 #repeatBtn.is-repeat-all {
   color: var(--accent-3);
-  border-color: rgba(244, 188, 18, .4);
-  background: rgba(244, 188, 18, .12);
+  border-color: var(--line-gold);
+  background: rgba(244, 188, 18, .13);
 }
 
 #repeatBtn.is-repeat-one {
-  color: var(--accent);
-  border-color: rgba(46, 157, 104, .5);
+  color: var(--accent-2);
+  border-color: rgba(70, 207, 144, .45);
   background: rgba(46, 157, 104, .16);
+}
+
+#autoDjBtn.active {
+  background: var(--accent-3);
+  color: #06130c;
+  font-weight: 700;
+  border-color: transparent;
+}
+
+/* ---- ช่องเพิ่มเพลง ---- */
+.add {
+  display: flex;
+  gap: .5rem;
+}
+
+.add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.add button {
+  flex-shrink: 0;
+  padding-inline: 1.15rem;
+}
+
+.search-panel {
+  padding: .8rem;
+  border-radius: var(--r-lg);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  animation: rise .22s var(--ease) both;
+}
+
+.search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+
+.search-head strong {
+  font-size: .84rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.search-list {
+  list-style: none;
+  margin: .6rem 0 0;
+  padding: 0;
+  max-height: min(46vh, 420px);
+  overflow: auto;
+}
+
+.search-list li {
+  display: flex;
+  gap: .6rem;
+  align-items: center;
+  padding: .45rem .2rem;
+  border-top: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: background-color var(--t-fast);
+}
+
+.search-list li:first-child {
+  border-top: 0;
+}
+
+@media (hover: hover) {
+  .search-list li:hover {
+    background: var(--surface-2);
+  }
+}
+
+.search-list img {
+  width: 68px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 7px;
+  flex-shrink: 0;
+  background: #000;
+}
+
+.search-list .t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-list .title {
+  font-size: .83rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-list .meta {
+  color: var(--muted-soft);
+  font-size: .72rem;
+}
+
+.search-list button {
+  flex-shrink: 0;
+}
+
+.add-notice {
+  padding: .8rem .9rem;
+  border-radius: var(--r-md);
+  background: rgba(244, 188, 18, .1);
+  border: 1px solid var(--line-gold);
+  animation: rise .22s var(--ease) both;
+}
+
+.add-notice p {
+  margin: 0 0 .6rem;
+  font-size: .82rem;
+  line-height: 1.6;
+  color: var(--gold-soft);
+}
+
+.add-notice-acts {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+
+/* ---- คิวเพลง ---- */
+.queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* กล่องว่างทุกอันบอกขั้นตอนถัดไปเสมอ ไม่ใช่แค่บอกว่าไม่มีของ */
+.queue:empty::after,
+.history-list:empty::after,
+.listeners:empty::after {
+  display: grid;
+  place-items: center;
+  padding: 1.3rem .8rem;
+  text-align: center;
+  font-size: .79rem;
+  line-height: 1.65;
+  color: var(--muted-soft);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+.queue:empty::after {
+  content: "คิวยังว่างอยู่ — พิมพ์ชื่อเพลงหรือวางลิงก์ในช่องด้านบนเพื่อเพิ่มเพลงแรก";
+}
+
+.history-list:empty::after {
+  content: "ยังไม่มีเพลงที่เล่นจบ — เพลงที่ฟังไปแล้วจะมาโผล่ตรงนี้";
+}
+
+.listeners:empty::after {
+  content: "ยังไม่มีเครื่องอื่นในห้อง";
+}
+
+.queue li {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .4rem;
+  border-radius: var(--r-sm);
+  border-bottom: 1px solid var(--line);
+  transition: background-color var(--t-fast), opacity var(--t-fast);
+}
+
+.queue li:last-child {
+  border-bottom: 0;
+}
+
+@media (hover: hover) {
+  .queue li:hover {
+    background: var(--surface-2);
+  }
+}
+
+.queue li.current {
+  background: rgba(46, 157, 104, .16);
+  border-bottom-color: transparent;
+  box-shadow: inset 3px 0 0 var(--accent-3);
+}
+
+.queue .grip {
+  cursor: grab;
+  color: var(--muted-soft);
+  font-size: 1rem;
+  line-height: 1;
+  padding: .35rem .3rem;
+  -webkit-user-select: none;
+  user-select: none;
+  /* กันหน้าเว็บเลื่อนตามนิ้วตอนลากบนมือถือ */
+  touch-action: none;
+  transition: color var(--t-fast);
+}
+
+@media (hover: hover) {
+  .queue li:hover .grip {
+    color: var(--text);
+  }
+}
+
+.queue .grip:active {
+  cursor: grabbing;
+}
+
+.queue li.dragging {
+  opacity: .4;
+  background: var(--surface-3);
+}
+
+.queue li.drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent-2);
+}
+
+.queue li.drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent-2);
+}
+
+.queue .mark {
+  display: inline-block;
+  min-width: 24px;
+  text-align: center;
+  color: var(--muted-soft);
+  font-size: .77rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue li.current .mark {
+  color: var(--accent-3);
+  font-weight: 700;
+}
+
+#app.is-playing .queue li.current .mark {
+  animation: beat 1.6s ease-in-out infinite;
+}
+
+@keyframes beat {
+  50% {
+    transform: scale(1.22);
+    opacity: .7;
+  }
+}
+
+.queue .acts {
+  display: flex;
+  gap: .2rem;
+  flex-shrink: 0;
+  opacity: .6;
+  transition: opacity var(--t-fast);
+}
+
+.queue li:hover .acts,
+.queue li:focus-within .acts,
+.queue li.current .acts {
+  opacity: 1;
+}
+
+/* จอสัมผัสไม่มี hover — โชว์ปุ่มเต็มที่ไปเลย ไม่งั้นมองไม่เห็นว่ากดได้ */
+@media (hover: none) {
+  .queue .acts {
+    opacity: 1;
+  }
+}
+
+.queue .acts button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 .35rem;
+  font-size: .78rem;
+}
+
+.queue .t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.queue .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .89rem;
+}
+
+.queue .by {
+  color: var(--muted-soft);
+  font-size: .73rem;
 }
 
 /* ---- ประวัติเพลง ---- */
@@ -1119,25 +1522,13 @@ a.yt:hover {
   overflow: auto;
 }
 
-.history-list:empty::after {
-  content: "ยังไม่มีประวัติเพลงที่เล่นไป";
-  display: grid;
-  place-items: center;
-  padding: 1rem .6rem;
-  text-align: center;
-  font-size: .75rem;
-  color: var(--muted);
-  border: 1px dashed var(--line);
-  border-radius: var(--r-md);
-}
-
 .history-list li {
   display: flex;
   align-items: center;
   gap: .5rem;
-  padding: .4rem .3rem;
+  padding: .45rem .3rem;
   border-bottom: 1px solid var(--line);
-  font-size: .8rem;
+  font-size: .82rem;
 }
 
 .history-list li:last-child {
@@ -1152,278 +1543,6 @@ a.yt:hover {
   white-space: nowrap;
 }
 
-.add {
-  display: flex;
-  gap: .5rem;
-}
-
-.add input {
-  flex: 1;
-  min-width: 0;
-}
-
-.add button {
-  flex-shrink: 0;
-}
-
-.search-panel {
-  padding: .7rem;
-  border-radius: var(--r-lg);
-  background: rgba(0, 0, 0, .32);
-  border: 1px solid var(--line);
-  animation: rise .28s var(--ease) both;
-}
-
-.search-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem;
-}
-
-.search-head strong {
-  font-size: .82rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.search-list {
-  list-style: none;
-  margin: .5rem 0 0;
-  padding: 0;
-  max-height: min(46vh, 420px);
-  overflow: auto;
-}
-
-.search-list li {
-  display: flex;
-  gap: .6rem;
-  align-items: center;
-  padding: .4rem 0;
-  border-top: 1px solid var(--line);
-  animation: rise .3s var(--ease) both;
-}
-
-.search-list li:first-child {
-  border-top: 0;
-}
-
-.search-list img {
-  width: 68px;
-  height: 38px;
-  object-fit: cover;
-  border-radius: 6px;
-  flex-shrink: 0;
-  background: #000;
-}
-
-.search-list .t {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.search-list .title {
-  font-size: .82rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-list .meta {
-  color: var(--muted);
-  font-size: .7rem;
-}
-
-.search-list button {
-  flex-shrink: 0;
-}
-
-.add-notice {
-  padding: .7rem .8rem;
-  border-radius: var(--r-md);
-  background: rgba(244, 188, 18, .12);
-  border: 1px solid rgba(244, 188, 18, .35);
-  animation: rise .28s var(--ease) both;
-}
-
-.add-notice p {
-  margin: 0 0 .55rem;
-  font-size: .8rem;
-  color: #ffe599;
-}
-
-.add-notice-acts {
-  display: flex;
-  gap: .4rem;
-  flex-wrap: wrap;
-}
-
-/* ---- คิวเพลง ---- */
-.queue {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 215px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(46, 157, 104, .4) transparent;
-}
-
-.queue::-webkit-scrollbar {
-  width: 5px;
-}
-
-.queue::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.queue::-webkit-scrollbar-thumb {
-  background: rgba(46, 157, 104, .3);
-  border-radius: 999px;
-}
-
-.queue::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
-
-.queue:empty::after {
-  content: "คิวว่าง — ค้นหาหรือวางลิงก์ด้านบนเพื่อเพิ่มเพลง";
-  display: grid;
-  place-items: center;
-  padding: 1.4rem .8rem;
-  text-align: center;
-  font-size: .78rem;
-  color: var(--muted);
-  border: 1px dashed var(--line);
-  border-radius: var(--r-md);
-}
-
-.queue li {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  padding: .45rem .35rem;
-  border-radius: var(--r-sm);
-  border-bottom: 1px solid var(--line);
-  transition: background .16s, opacity .16s;
-}
-
-.queue li:last-child {
-  border-bottom: 0;
-}
-
-.queue li:hover {
-  background: var(--surface);
-}
-
-.queue li.current {
-  background: linear-gradient(90deg, rgba(46, 157, 104, .2), rgba(244, 188, 18, .12));
-  border-bottom-color: transparent;
-  box-shadow: inset 3px 0 0 var(--accent-3);
-}
-
-.queue .grip {
-  cursor: grab;
-  color: #5f6c82;
-  font-size: 1rem;
-  line-height: 1;
-  padding: .3rem .25rem;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: none;
-  /* กันหน้าเว็บเลื่อนตามนิ้วตอนลากบนมือถือ */
-  transition: color .16s;
-}
-
-.queue li:hover .grip {
-  color: var(--text);
-}
-
-.queue .grip:active {
-  cursor: grabbing;
-}
-
-.queue li.dragging {
-  opacity: .4;
-  background: var(--surface-2);
-}
-
-.queue li.drop-before {
-  box-shadow: inset 0 2px 0 0 var(--accent);
-}
-
-.queue li.drop-after {
-  box-shadow: inset 0 -2px 0 0 var(--accent);
-}
-
-.queue .mark {
-  display: inline-block;
-  min-width: 24px;
-  text-align: center;
-  color: var(--muted);
-  font-size: .76rem;
-  font-variant-numeric: tabular-nums;
-  will-change: transform, opacity;
-}
-
-.queue li.current .mark {
-  color: var(--accent-3);
-  font-weight: 700;
-}
-
-#app.is-playing .queue li.current .mark {
-  animation: beat 1.6s ease-in-out infinite;
-}
-
-@keyframes beat {
-  50% {
-    transform: scale(1.25);
-    opacity: .7;
-  }
-}
-
-.queue .acts {
-  display: flex;
-  gap: .2rem;
-  flex-shrink: 0;
-  opacity: .55;
-  transition: opacity .16s;
-}
-
-.queue li:hover .acts,
-.queue li.current .acts {
-  opacity: 1;
-}
-
-.queue .acts button {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 .35rem;
-  font-size: .76rem;
-}
-
-.queue .t {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.queue .title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: .88rem;
-}
-
-.queue .by {
-  color: var(--muted);
-  font-size: .71rem;
-}
-
 /* ---- เครื่องในห้อง ---- */
 .listeners {
   list-style: none;
@@ -1434,36 +1553,81 @@ a.yt:hover {
   gap: .4rem;
 }
 
+/* ตอนว่าง ::after เป็น grid จึงต้องให้ ul กลับเป็น block ไม่ใช่ flex */
+.listeners:empty {
+  display: block;
+}
+
 .listeners li {
-  font-size: .78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .79rem;
   color: var(--muted);
-  padding: .28rem .65rem;
-  border-radius: 999px;
+  padding: .3rem .35rem .3rem .75rem;
+  border-radius: var(--r-pill);
   background: var(--surface-2);
   border: 1px solid var(--line);
 }
 
+/* เครื่องที่เป็นลำโพงอยู่ ให้เด่นกว่าเครื่องรีโมท */
+.listeners li.is-speaker {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.role-tag {
+  font-size: .66rem;
+  letter-spacing: .02em;
+  padding: .1rem .45rem;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--muted-soft);
+  white-space: nowrap;
+}
+
+.listeners li.is-speaker .role-tag {
+  background: rgba(46, 157, 104, .22);
+  color: var(--accent-2);
+}
+
+/* ---- สวิตช์ให้ทุกเครื่องคุมเพลง ---- */
 .toggle {
   display: flex;
-  gap: .6rem;
+  gap: .7rem;
   align-items: flex-start;
-  font-size: .8rem;
+  font-size: .84rem;
   color: var(--muted);
-  padding-top: .6rem;
-  border-top: 1px solid var(--line);
+  padding: .9rem var(--pad);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
   cursor: pointer;
+  transition: border-color var(--t);
+}
+
+@media (hover: hover) {
+  .toggle:hover {
+    border-color: var(--line-strong);
+  }
 }
 
 .toggle input {
   accent-color: var(--accent);
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
   margin: 1px 0 0;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .toggle input:disabled {
   cursor: not-allowed;
+}
+
+.toggle small {
+  display: block;
+  color: var(--muted-soft);
 }
 
 /* ============ 11. ข้อความแจ้งเตือนลอย ============ */
@@ -1473,30 +1637,299 @@ a.yt:hover {
   bottom: max(1.4rem, env(safe-area-inset-bottom));
   z-index: 30;
   margin: 0;
-  padding: .7rem 1.3rem;
+  padding: .72rem 1.35rem;
   max-width: min(92vw, 480px);
   text-align: center;
-  font-size: .86rem;
+  font-size: .88rem;
   font-weight: 500;
   color: var(--text);
-  background: #0e1c15;
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-lg);
   opacity: 0;
-  transform: translate3d(-50%, 20px, 0) scale(0.96);
+  transform: translate3d(-50%, 16px, 0);
   pointer-events: none;
-  transition: opacity .25s var(--ease), transform .25s var(--ease);
+  transition: opacity var(--t) var(--ease), transform var(--t) var(--ease);
 }
 
 .toast.show {
   opacity: 1;
-  transform: translate3d(-50%, 0, 0) scale(1);
+  transform: translate3d(-50%, 0, 0);
 }
 
-/* ============ 12. ขนาดหน้าจอ (Responsive Breakpoints) ============ */
+/* ============ 12. Popup ============ */
+.unblock-modal,
+.stats-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2rem;
+  background: rgba(3, 8, 5, .84);
+  animation: fadeIn .18s ease-out;
+}
 
-/* 12.1. จอกว้าง / เดสก์ท็อป (Large Displays >= 1025px) */
+.unblock-modal {
+  cursor: pointer;
+}
+
+.unblock-modal-card,
+.stats-modal-card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line-gold);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  animation: popIn .2s var(--ease);
+}
+
+.unblock-modal-card {
+  max-width: 400px;
+  padding: 1.7rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  cursor: default;
+}
+
+.unblock-icon-pulse {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(244, 188, 18, .14);
+  border: 2px solid var(--accent-3);
+  display: grid;
+  place-items: center;
+  color: var(--accent-3);
+  animation: beat 1.5s ease-in-out infinite;
+}
+
+.unblock-icon {
+  display: grid;
+  place-items: center;
+}
+
+.unblock-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.unblock-content strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--text);
+  margin-bottom: .3rem;
+}
+
+.unblock-content p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.unblock-modal-card button.primary {
+  width: 100%;
+  min-height: 50px;
+  font-size: 1rem;
+}
+
+/* ---- สถิติห้อง / DJ Leaderboard ---- */
+.stats-modal-card {
+  max-width: 480px;
+  max-height: 85dvh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.stats-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.stats-title-group strong {
+  display: block;
+  font-size: 1.12rem;
+  color: var(--text);
+}
+
+.stats-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .65rem;
+}
+
+.stat-pill {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: .8rem .5rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  min-width: 0;
+}
+
+.stat-num {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-lbl {
+  font-size: .73rem;
+  color: var(--muted-soft);
+}
+
+.leaderboard-section h3 {
+  font-size: .88rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 .6rem;
+}
+
+.leaderboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: .65rem .85rem;
+}
+
+.leaderboard-item.rank-1 {
+  border-color: var(--accent-3);
+  background: rgba(244, 188, 18, .09);
+}
+
+.leaderboard-item.rank-2 {
+  border-color: #9fb4c4;
+  background: rgba(159, 180, 196, .07);
+}
+
+.leaderboard-item.rank-3 {
+  border-color: #c2803a;
+  background: rgba(194, 128, 58, .08);
+}
+
+.dj-rank-name {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* อันดับเป็นตัวเลขในวงกลม — สีทอง/เงิน/ทองแดงบอกอันดับอยู่แล้วที่ขอบการ์ด */
+.dj-badge {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: .8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-3);
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+}
+
+.rank-1 .dj-badge {
+  background: rgba(244, 188, 18, .18);
+  border-color: var(--accent-3);
+  color: var(--gold-soft);
+}
+
+.rank-2 .dj-badge {
+  background: rgba(159, 180, 196, .16);
+  border-color: #9fb4c4;
+  color: #cfdde6;
+}
+
+.rank-3 .dj-badge {
+  background: rgba(194, 128, 58, .18);
+  border-color: #c2803a;
+  color: #e0a469;
+}
+
+.dj-stats-info {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  font-size: .79rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* ============ 13. แอนิเมชันร่วม ============ */
+/* หมายเหตุ: rise ถูกเรียกใช้อยู่ 4 จุดในไฟล์เดิมแต่ไม่เคยประกาศ จึงไม่เคยทำงานเลย
+   ประกาศไว้ที่นี่ และใช้เฉพาะกับกล่องที่เปิด/ปิดเป็นครั้งคราว
+   ไม่ใช้กับรายการที่ถูกวาดใหม่ทุกครั้งที่ state เปลี่ยน (คิว/ผลค้นหา) เพราะจะกระตุก */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============ 14. ขนาดหน้าจอ ============ */
+
+/* 14.1 จอกว้าง / เดสก์ท็อป (>= 1025px) */
 @media (min-width: 1025px) {
   #app {
     height: 100dvh;
@@ -1513,6 +1946,12 @@ a.yt:hover {
     overflow: auto;
   }
 
+  aside {
+    /* กันเงาการ์ดโดนตัดขอบตอนสกอลล์ */
+    padding: 2px;
+    margin: -2px;
+  }
+
   .player-wrap {
     display: flex;
   }
@@ -1523,29 +1962,25 @@ a.yt:hover {
   }
 
   .remote {
-    padding: 1.3rem;
-    gap: 1.3rem;
-  }
-
-  .remote-art {
-    width: clamp(160px, 38%, 300px);
+    padding: 1.4rem;
+    gap: 1.4rem;
   }
 
   .queue {
-    max-height: 200px;
+    max-height: 230px;
   }
 
   .search-list,
   .room-list {
-    max-height: 240px;
+    max-height: 250px;
   }
 }
 
-/* 12.2. จอกลาง / แท็บเล็ต (Tablets & Medium Displays 641px - 1024px) */
+/* 14.2 แท็บเล็ต (<= 1024px) */
 @media (max-width: 1024px) {
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    max-width: 800px;
+    max-width: 820px;
   }
 
   .queue {
@@ -1553,16 +1988,29 @@ a.yt:hover {
   }
 }
 
-/* 12.3. มือถือ (Mobile Portrait <= 640px) */
+/* 14.3 มือถือแนวตั้ง (<= 640px) */
 @media (max-width: 640px) {
   .stage {
-    padding: .75rem;
-    gap: .75rem;
+    padding: .8rem;
+    gap: .8rem;
+  }
+
+  .panel,
+  .toggle {
+    padding: 1rem;
+  }
+
+  header {
+    padding: .6rem .8rem;
+  }
+
+  header .label {
+    display: none;
   }
 
   .controls {
     justify-content: center;
-    gap: .45rem;
+    gap: .5rem;
   }
 
   .controls .spacer {
@@ -1570,19 +2018,21 @@ a.yt:hover {
   }
 
   .controls .tbtn {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    min-height: 50px;
   }
 
   .controls #playBtn {
-    width: 60px;
-    height: 60px;
-    min-width: 60px;
+    width: 62px;
+    height: 62px;
+    min-width: 62px;
+    min-height: 62px;
   }
 
-  #timeLabel {
-    font-size: .82rem;
+  .keys-badge {
+    margin-left: 0;
   }
 
   #unblockBtn {
@@ -1592,7 +2042,7 @@ a.yt:hover {
   .vol-wrap {
     flex-basis: 100%;
     order: 5;
-    margin-top: .2rem;
+    margin-top: .25rem;
     justify-content: center;
     flex-wrap: wrap;
   }
@@ -1608,65 +2058,68 @@ a.yt:hover {
   }
 
   .now-row {
-    margin-top: .85rem;
-  }
-
-  header {
-    padding: .6rem .8rem;
-    background: #09130e;
-  }
-
-  .gate-card {
-    background: #0c1812;
-  }
-
-  header .label {
-    display: none;
+    margin-top: .9rem;
   }
 
   .remote {
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    padding: .7rem;
+    gap: .55rem;
   }
 
+  /* กรอบเวทีเป็น 16:9 ตายตัว ปกเพลงจึงต้องเล็กพอให้ข้อความใต้ภาพไม่ถูกตัด */
   .remote-art {
-    width: 100%;
-    max-width: 260px;
-    margin-inline: auto;
+    width: min(40%, 150px);
+  }
+
+  .remote-meta {
+    gap: .3rem;
+  }
+
+  .remote-meta p {
+    font-size: .78rem;
   }
 
   .remote-meta {
     justify-items: center;
   }
 
-  .listeners {
-    gap: .35rem;
+  .panel-acts {
+    gap: .3rem;
+  }
+
+  .stats-modal-card {
+    padding: 1.15rem;
   }
 }
 
-/* 12.4. มือถือแนวนอน / จอเตี้ย (Mobile Landscape / Short Heights <= 600px) */
+/* 14.4 มือถือแนวนอน / จอเตี้ย (<= 600px สูง) */
 @media (max-height: 600px) {
   #playerStage {
     width: min(100%, calc(48dvh * 16 / 9));
   }
 
   .now-row {
-    margin: .5rem 0 .35rem;
+    margin: .55rem 0 .35rem;
   }
 
   .controls {
-    margin-top: .4rem;
+    margin-top: .45rem;
   }
 
   .controls .tbtn {
     width: 42px;
     height: 42px;
+    min-height: 42px;
   }
 
   .controls #playBtn {
     width: 50px;
     height: 50px;
+    min-height: 50px;
   }
 
   .gate-card {
@@ -1678,11 +2131,10 @@ a.yt:hover {
   }
 }
 
-/* 12.5. จอเล็กมาก (Small Smartphones <= 360px & Foldables) */
+/* 14.5 จอเล็กมาก / เครื่องพับได้ (<= 360px) */
 @media (max-width: 360px) {
   .head-left {
     gap: .3rem;
-    flex-wrap: wrap;
   }
 
   .head-logo-img {
@@ -1702,20 +2154,30 @@ a.yt:hover {
   }
 
   .gate-card {
-    padding: .95rem;
+    padding: 1rem;
   }
 
   .brand-logo-img {
     height: 34px;
   }
 
-  .music-pill {
-    font-size: .65rem;
-    padding: .15rem .45rem;
+  .stats-overview {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
-/* ============ 13. เคารพการตั้งค่าลดการเคลื่อนไหว ============ */
+/* ============ 15. ความลื่นและการประหยัดทรัพยากร ============ */
+
+/* รายการยาว: ให้เบราว์เซอร์ข้ามการวาดแถวที่เลื่อนพ้นจอไปแล้ว */
+.queue li,
+.search-list li,
+.history-list li,
+.room-list .room-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 46px;
+}
+
+/* เครื่องที่ตั้งค่าลดการเคลื่อนไหวไว้ — ตัดแอนิเมชันวนทั้งหมดทิ้ง */
 @media (prefers-reduced-motion: reduce) {
 
   *,
@@ -1724,234 +2186,14 @@ a.yt:hover {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
   }
 
-  .aurora span {
-    animation: none;
+  #app.is-playing .controls #playBtn::before {
+    display: none;
   }
-}
 
-/* ============ 14. Performance Defaults (All Devices) ============ */
-.queue li,
-.search-list li,
-.room-list .room-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 0 44px;
-}
-
-/* ============ 15. Popup ปลดบล็อกเสียง (Autoplay Unlock Modal) ============ */
-.unblock-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(4, 9, 6, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  padding: 1.2rem;
-  animation: checkFadeIn 0.2s ease-out;
-  cursor: pointer;
-}
-
-.unblock-modal-card {
-  background: linear-gradient(135deg, #0d281c 0%, #06110b 100%);
-  border: 1px solid var(--accent-3);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), 0 0 30px rgba(244, 188, 18, 0.2);
-  border-radius: var(--r-lg);
-  padding: 1.6rem 1.8rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 1rem;
-  max-width: 400px;
-  width: 100%;
-  animation: checkPopIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  cursor: default;
-}
-
-.unblock-icon-pulse {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: rgba(244, 188, 18, 0.15);
-  border: 2px solid var(--accent-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.8rem;
-  box-shadow: 0 0 20px rgba(244, 188, 18, 0.35);
-  animation: beat 1.5s ease-in-out infinite;
-}
-
-.unblock-content strong {
-  display: block;
-  font-size: 1.1rem;
-  color: var(--text);
-  margin-bottom: 0.3rem;
-}
-
-.unblock-content p {
-  margin: 0;
-  line-height: 1.45;
-}
-
-.unblock-modal-card button.primary {
-  width: 100%;
-  padding: 0.75rem 1.2rem;
-  font-size: 1rem;
-}
-
-@keyframes checkFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes checkPopIn {
-  from { opacity: 0; transform: scale(0.92); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-/* ============ 16. Auto DJ & Stats Modal ============ */
-#autoDjBtn.active {
-  background: var(--accent-3);
-  color: #060b08;
-  font-weight: 700;
-  border-color: transparent;
-  box-shadow: 0 0 12px rgba(244, 188, 18, 0.4);
-}
-
-.stats-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(4, 9, 6, 0.85);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  padding: 1.2rem;
-  animation: checkFadeIn 0.2s ease-out;
-}
-
-.stats-modal-card {
-  background: linear-gradient(135deg, #0d281c 0%, #06110b 100%);
-  border: 1px solid var(--accent-3);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(46, 157, 104, 0.25);
-  border-radius: var(--r-lg);
-  padding: 1.5rem 1.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  max-width: 480px;
-  width: 100%;
-  max-height: 85vh;
-  overflow-y: auto;
-  animation: checkPopIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.stats-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.stats-title-group strong {
-  font-size: 1.15rem;
-  color: var(--text);
-  display: block;
-  letter-spacing: -0.01em;
-}
-
-.stats-overview {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-}
-
-.stat-pill {
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 0.75rem 0.6rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.stat-num {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--accent-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stat-lbl {
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
-.leaderboard-section h3 {
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin: 0 0 0.6rem 0;
-}
-
-.leaderboard-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.leaderboard-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 0.65rem 0.85rem;
-}
-
-.leaderboard-item.rank-1 {
-  border-color: var(--accent-3);
-  background: rgba(244, 188, 18, 0.08);
-}
-
-.leaderboard-item.rank-2 {
-  border-color: #cbd5e1;
-  background: rgba(203, 213, 225, 0.05);
-}
-
-.leaderboard-item.rank-3 {
-  border-color: #d97706;
-  background: rgba(217, 119, 6, 0.05);
-}
-
-.dj-rank-name {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-weight: 600;
-}
-
-.dj-badge {
-  font-size: 1.1rem;
-}
-
-.dj-stats-info {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.78rem;
-  color: var(--muted);
+  .eq i {
+    transform: scaleY(.55);
+  }
 }
