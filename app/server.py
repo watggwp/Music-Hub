@@ -401,7 +401,9 @@ async def _auto_dj_once(room: Room) -> None:
     exclude_ids = {t["videoId"] for t in room.queue} | {
         t.get("videoId") for t in room.history if t.get("videoId")
     }
-    next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids)
+    # เพลงที่กำลังเล่น ในคิว และ 10 เพลงล่าสุด — Auto DJ ห้ามได้เพลงเดียวกันนี้ (แม้คนละคลิป)
+    avoid_titles = [t["title"] for t in room.queue] + [t["title"] for t in room.history[:10]]
+    next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids, avoid_titles)
     if not next_track:
         return
     async with room.lock:

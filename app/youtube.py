@@ -364,29 +364,78 @@ async def fetch_spotify_tracks(spot_type: str, spot_id: str) -> list[str]:
         return []
 
 
-def _normalize_title_for_cmp(title: str) -> str:
-    cleaned = clean_title(title).lower()
-    return re.sub(r"[^a-zA-Z0-9\u0e00-\u0e7f]+", " ", cleaned).strip()
+# \u0e04\u0e33\u0e17\u0e35\u0e48\u0e1a\u0e2d\u0e01\u0e41\u0e04\u0e48 "\u0e23\u0e39\u0e1b\u0e41\u0e1a\u0e1a\u0e04\u0e25\u0e34\u0e1b" \u0e44\u0e21\u0e48\u0e43\u0e0a\u0e48\u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07/\u0e28\u0e34\u0e25\u0e1b\u0e34\u0e19 \u2014 \u0e15\u0e31\u0e14\u0e17\u0e34\u0e49\u0e07\u0e01\u0e48\u0e2d\u0e19\u0e40\u0e17\u0e35\u0e22\u0e1a
+_TITLE_NOISE = re.compile(
+    r"official|music|video|lyrics?|audio|visuali[sz]er|karaoke|cover|remix|version|ver\.?|"
+    r"sped up|slowed|reverb|live|full|topic|prod\.?|feat\.?|ft\.?|\bmv\b|m/v|\bhq\b|\bhd\b|\b4k\b|"
+    r"\u0e40\u0e19\u0e37\u0e49\u0e2d\u0e40\u0e1e\u0e25\u0e07|\u0e04\u0e32\u0e23\u0e32\u0e42\u0e2d\u0e40\u0e01\u0e30|\u0e04\u0e2d\u0e23\u0e4c\u0e14", re.I)
+# \u0e04\u0e33\u0e17\u0e35\u0e48\u0e1a\u0e2d\u0e01\u0e27\u0e48\u0e32\u0e40\u0e1b\u0e47\u0e19 "\u0e2d\u0e35\u0e01\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19\u0e02\u0e2d\u0e07\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e34\u0e21" \u2014 \u0e40\u0e08\u0e2d\u0e41\u0e25\u0e49\u0e27\u0e41\u0e04\u0e48\u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19\u0e01\u0e47\u0e16\u0e37\u0e2d\u0e40\u0e1b\u0e47\u0e19\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19
+_VERSION_HINT = re.compile(r"cover|remix|karaoke|sped up|slowed|live|acoustic|\u0e04\u0e32\u0e23\u0e32\u0e42\u0e2d\u0e40\u0e01\u0e30|\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19", re.I)
+_BRACKET = re.compile(r"[(\[\u3010\uff08\u300c]([^)\]\u3011\uff09\u300d]*)[)\]\u3011\uff09\u300d]")
+_SEPARATOR = re.compile(r"\s+[-\u2013\u2014]\s*|\s*[-\u2013\u2014]\s+|[|\uff5c/:,&+]|\s+x\s+|\s+(?:feat|ft)\.?\s+", re.I)
+
+
+def _title_parts(title: str) -> set[str]:
+    """\u0e41\u0e22\u0e01\u0e0a\u0e37\u0e48\u0e2d\u0e04\u0e25\u0e34\u0e1b\u0e40\u0e1b\u0e47\u0e19\u0e2a\u0e48\u0e27\u0e19 \u0e46 (\u0e28\u0e34\u0e25\u0e1b\u0e34\u0e19 / \u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07 / \u0e0a\u0e37\u0e48\u0e2d\u0e43\u0e19\u0e27\u0e07\u0e40\u0e25\u0e47\u0e1a) \u0e17\u0e35\u0e48\u0e15\u0e31\u0e14\u0e04\u0e33\u0e1f\u0e38\u0e48\u0e21\u0e40\u0e1f\u0e37\u0e2d\u0e22\u0e41\u0e25\u0e30\u0e0a\u0e48\u0e2d\u0e07\u0e27\u0e48\u0e32\u0e07\u0e2d\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27
+
+    \u0e15\u0e31\u0e14\u0e0a\u0e48\u0e2d\u0e07\u0e27\u0e48\u0e32\u0e07\u0e17\u0e34\u0e49\u0e07\u0e17\u0e31\u0e49\u0e07\u0e2b\u0e21\u0e14 \u0e40\u0e1e\u0e23\u0e32\u0e30\u0e40\u0e1e\u0e25\u0e07\u0e44\u0e17\u0e22\u0e40\u0e02\u0e35\u0e22\u0e19\u0e40\u0e27\u0e49\u0e19\u0e27\u0e23\u0e23\u0e04\u0e44\u0e21\u0e48\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19 ("\u0e40\u0e02\u0e35\u0e22\u0e27\u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e07\u0e41\u0e14\u0e07" \u0e01\u0e31\u0e1a "\u0e40\u0e02\u0e35\u0e22\u0e27 \u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e07 \u0e41\u0e14\u0e07")
+    \u0e40\u0e01\u0e47\u0e1a\u0e0a\u0e37\u0e48\u0e2d\u0e43\u0e19\u0e27\u0e07\u0e40\u0e25\u0e47\u0e1a\u0e44\u0e27\u0e49\u0e14\u0e49\u0e27\u0e22 \u0e40\u0e1e\u0e23\u0e32\u0e30\u0e21\u0e31\u0e01\u0e40\u0e1b\u0e47\u0e19\u0e0a\u0e37\u0e48\u0e2d\u0e20\u0e32\u0e29\u0e32\u0e2d\u0e31\u0e07\u0e01\u0e24\u0e29\u0e02\u0e2d\u0e07\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19 \u0e40\u0e0a\u0e48\u0e19 (Get high)
+    """
+    text = title.lower()
+    chunks = _BRACKET.findall(text) + [_BRACKET.sub(" ", text)]
+    parts: set[str] = set()
+    for chunk in chunks:
+        for piece in _SEPARATOR.split(chunk):
+            piece = _TITLE_NOISE.sub(" ", piece)
+            piece = re.sub(r"[^a-z0-9\u0e00-\u0e7f]+", "", piece)
+            if len(piece) >= 2:
+                parts.add(piece)
+    return parts
+
+
+def _part_match(part: str, others: set[str]) -> bool:
+    return any(part == o or (min(len(part), len(o)) >= 3 and (part in o or o in part))
+               for o in others)
 
 
 def is_too_similar(title_a: str, title_b: str) -> bool:
-    na = _normalize_title_for_cmp(title_a)
-    nb = _normalize_title_for_cmp(title_b)
-    if not na or not nb:
+    """\u0e2a\u0e2d\u0e07\u0e04\u0e25\u0e34\u0e1b\u0e19\u0e35\u0e49\u0e19\u0e48\u0e32\u0e08\u0e30\u0e40\u0e1b\u0e47\u0e19\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19\u0e44\u0e2b\u0e21 (\u0e04\u0e19\u0e25\u0e30\u0e04\u0e19\u0e2d\u0e31\u0e1b / \u0e04\u0e19\u0e25\u0e30\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19)
+
+    \u0e16\u0e37\u0e2d\u0e27\u0e48\u0e32\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19\u0e40\u0e21\u0e37\u0e48\u0e2d\u0e17\u0e38\u0e01\u0e2a\u0e48\u0e27\u0e19\u0e02\u0e2d\u0e07\u0e0a\u0e37\u0e48\u0e2d\u0e1d\u0e31\u0e48\u0e07\u0e2b\u0e19\u0e36\u0e48\u0e07\u0e44\u0e1b\u0e40\u0e08\u0e2d\u0e43\u0e19\u0e2d\u0e35\u0e01\u0e1d\u0e31\u0e48\u0e07
+    \u0e40\u0e0a\u0e48\u0e19 "PUN, THE TOYS - \u0e40\u0e02\u0e35\u0e22\u0e27 \u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e07 \u0e41\u0e14\u0e07" \u0e01\u0e31\u0e1a "\u0e40\u0e02\u0e35\u0e22\u0e27\u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e07\u0e41\u0e14\u0e07 (Get high) - PUN"
+    \u0e2a\u0e48\u0e27\u0e19\u0e40\u0e1e\u0e25\u0e07\u0e2d\u0e37\u0e48\u0e19\u0e02\u0e2d\u0e07\u0e28\u0e34\u0e25\u0e1b\u0e34\u0e19\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19 ("PUN - \u0e44\u0e21\u0e48\u0e40\u0e04\u0e22") \u0e08\u0e30\u0e21\u0e35\u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07\u0e17\u0e35\u0e48\u0e44\u0e21\u0e48\u0e15\u0e23\u0e07 \u0e08\u0e36\u0e07\u0e22\u0e31\u0e07\u0e1c\u0e48\u0e32\u0e19\u0e44\u0e14\u0e49
+    """
+    pa, pb = _title_parts(title_a), _title_parts(title_b)
+    if not pa or not pb:
         return False
-    if na == nb or na in nb or nb in na:
+    if all(_part_match(p, pb) for p in pa) or all(_part_match(p, pa) for p in pb):
         return True
+    # cover / remix / live \u0e02\u0e2d\u0e07\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e34\u0e21 \u2014 \u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e47\u0e1e\u0e2d
+    if _VERSION_HINT.search(title_a) or _VERSION_HINT.search(title_b):
+        return any(len(p) >= 4 and _part_match(p, pb) for p in pa)
     return False
 
 
 _NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind the scene", "reaction", "vlog", "podcast"}
 
 # ---------------- Auto DJ (ค้นหาเพลงถัดไปอัตโนมัติ) ----------------
-async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids: set[str]) -> dict | None:
-    """ค้นหาเพลงถัดไปที่ไม่ใช่เพลงเดิม โดยใช้ YouTube Radio / Mix และค้นหาเพลงแนวเดียวกัน"""
+async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids: set[str],
+                             avoid_titles: list[str] | None = None) -> dict | None:
+    """ค้นหาเพลงถัดไปที่ไม่ใช่เพลงเดิม โดยใช้ YouTube Radio / Mix และค้นหาเพลงแนวเดียวกัน
+
+    avoid_titles = ชื่อเพลงที่กำลังเล่น อยู่ในคิว และเพิ่งเล่นไป ต้องไม่ได้เพลงเดียวกันที่คนอื่นอัปซ้ำมา
+    เทียบด้วยชื่อ เพราะ Mix และผลค้นหามักมีเพลงเดิมหลายคลิป (คนละช่อง videoId ไม่ซ้ำกัน)
+    """
     all_exclude = set(exclude_ids)
     if seed_video_id:
         all_exclude.add(seed_video_id)
+    avoid = [t for t in [current_title, *(avoid_titles or [])] if t]
+
+    def usable(title: str) -> bool:
+        lower = title.lower()
+        if any(bad in lower for bad in _NON_MUSIC_KEYWORDS):
+            return False
+        return not any(is_too_similar(title, used) for used in avoid)
 
     # 1. วิธีที่ 1: ดึงจาก YouTube Mix (RD{video_id}) ของเพลงล่าสุด — แม่นยำและเป็นเพลงแนวเดียวกันที่สุด
     if seed_video_id:
@@ -394,20 +443,14 @@ async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids
         mix_vids = await playlist_video_ids(mix_id)
         candidates = [vid for vid in mix_vids if vid not in all_exclude]
         if candidates:
-            # สุ่มตรวจคลิปใน Mix
-            sample = candidates[:12]
-            probes = await probe_many(sample)
+            # หัวแถวของ Mix มักเป็นเพลงเดิมเวอร์ชันอื่น จึงตรวจกว้างหน่อยกันหมดตัวเลือก
+            probes = await probe_many(candidates[:20])
             for p in probes:
-                if p.get("ok"):
-                    cand_title = p.get("title", "")
-                    cand_lower = cand_title.lower()
-                    if any(bad in cand_lower for bad in _NON_MUSIC_KEYWORDS):
-                        continue
-                    if not is_too_similar(cand_title, current_title):
-                        return {
-                            "videoId": p["videoId"],
-                            "title": cand_title,
-                        }
+                if p.get("ok") and usable(p.get("title", "")):
+                    return {
+                        "videoId": p["videoId"],
+                        "title": p.get("title", ""),
+                    }
 
     # 2. วิธีที่ 2: หาก Mix ไม่มี ให้สกัดชื่อศิลปินหรือค้นหาเพลงที่เกี่ยวข้อง
     query = clean_title(current_title)
@@ -420,15 +463,11 @@ async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids
         for item in candidates:
             vid = item.get("videoId")
             cand_title = item.get("title", "")
-            cand_lower = cand_title.lower()
-            if not vid or vid in all_exclude:
-                continue
-            if any(bad in cand_lower for bad in _NON_MUSIC_KEYWORDS):
-                continue
-            if is_too_similar(cand_title, current_title):
+            if not vid or vid in all_exclude or not usable(cand_title):
                 continue
             probe = await probe_video(vid)
-            if probe.get("ok"):
+            # ชื่อจาก oEmbed อาจต่างจากหน้าค้นหา ตรวจซ้ำอีกรอบ
+            if probe.get("ok") and usable(probe.get("title", cand_title)):
                 return {
                     "videoId": vid,
                     "title": probe.get("title", cand_title),
