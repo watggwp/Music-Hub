@@ -44,6 +44,20 @@ rooms_lock = asyncio.Lock()
 CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
                    "shuffle", "setVolume", "clearQueue", "setRepeatMode", "setAutoDj"}
 
+# ---------- ระบบประกาศ ----------
+# เปิดให้ทุกเครื่องในวง LAN ประกาศได้ ไม่มีรหัสกั้น ตามแนวเดียวกับส่วนอื่นของแอป
+# ที่เหลือคือกันความผิดพลาดโดยไม่ตั้งใจ — ยิงรัว ประกาศทับกัน และข้อความยาวเกินไป
+ANNOUNCE_MAX_CHARS = 200        # ยาวกว่านี้เพลงจะโดนหรี่นานเกินไป
+ANNOUNCE_COOLDOWN = 10.0        # วินาที — กันคนเดิมยิงรัว
+ANNOUNCE_GAP = 3.0              # วินาที — กันประกาศสองอันทับกันจนอ่านไม่รู้เรื่อง
+ANNOUNCE_DUCK = 12              # ระดับเสียงเพลงระหว่างประกาศ (0-100)
+ANNOUNCE_RATE_DEFAULT = 0.8     # ความเร็วเสียงอ่าน 1.0 = ความเร็วปกติของเอนจิน
+ANNOUNCE_RATE_MIN = 0.5
+ANNOUNCE_RATE_MAX = 1.5
+
+_announce_at: dict[str, float] = {}   # client_id -> เวลาที่ประกาศล่าสุด
+_announce_last = 0.0                  # เวลาที่มีประกาศล่าสุดของทั้งระบบ
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -102,6 +116,124 @@ async def offer_alternatives(room: Room, title: str, video_id: str,
         await socket.send_json(payload)
     else:
         await push_all(room, payload)
+
+
+# ---------------- ประกาศ ----------------
+def clamp_rate(value: Any) -> float:
+    try:
+        return max(ANNOUNCE_RATE_MIN, min(ANNOUNCE_RATE_MAX, float(value)))
+    except (TypeError, ValueError):
+        return ANNOUNCE_RATE_DEFAULT
+
+
+def announce_ms(text: str, speak: bool, rate: float = ANNOUNCE_RATE_DEFAULT) -> int:
+    """ประเมินว่าประกาศนี้จะกินเวลากี่มิลลิวินาที
+
+    เสียงอ่านไทยที่ความเร็ว 1.0 ได้ราว 4.5 ตัวอักษรต่อวินาที ช้าลงครึ่งหนึ่งก็ใช้เวลาเป็นสองเท่า
+    จึงต้องหารด้วย rate ไม่งั้นแบนเนอร์จะถูกล้างทิ้งตั้งแต่ยังอ่านไม่จบ
+    บวกหัวท้ายอีก 3 วินาทีเผื่อเสียงเตือนและจังหวะเริ่มพูด
+
+    ตัวเลขนี้ใช้ตั้งเวลาล้างประกาศเท่านั้น เครื่องโฮสต์คืนเสียงเพลงเองทันทีที่พูดจบอยู่แล้ว
+    """
+    if not speak:
+        return int(min(30_000, max(5_000, len(text) * 120 + 3_000)))
+    seconds = len(text) / (4.5 * max(rate, ANNOUNCE_RATE_MIN))
+    return int(min(150_000, max(5_000, seconds * 1000 + 3_000)))
+
+
+async def announce_targets(room: Room, scope: str) -> list[Room]:
+    """ห้องที่จะได้ยินประกาศนี้ — ข้ามห้องร้างที่ไม่มีใครอยู่"""
+    if scope != "all":
+        return [room] if room.clients else []
+    async with rooms_lock:
+        return [r for r in rooms.values() if r.clients]
+
+
+async def push_announcement(targets: list[Room], ann: dict[str, Any] | None,
+                            ann_id: str = "") -> None:
+    for target in targets:
+        async with target.lock:
+            if ann is None:
+                changed = target.clear_announcement(ann_id)
+            else:
+                target.set_announcement(ann)
+                changed = True
+        if changed:
+            await broadcast(target)
+
+
+async def expire_announcement(targets: list[Room], ann_id: str, delay_ms: int) -> None:
+    """ล้างประกาศเมื่อหมดเวลา เผื่อกรณีที่เครื่องโฮสต์หลุดไปก่อนจะพูดจบ
+
+    ถ้าไม่มีตัวนี้ ประกาศจะค้างเป็นแบนเนอร์อยู่ทุกห้องไม่มีวันหาย
+    และเครื่องที่มารับช่วงเป็นโฮสต์ต่อจะหรี่เพลงค้างไว้ตลอด
+    """
+    await asyncio.sleep(delay_ms / 1000 + 1.0)
+    await push_announcement(targets, None, ann_id)
+
+
+async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
+                          socket: WebSocket) -> None:
+    global _announce_last
+
+    text = " ".join(str(message.get("text") or "").split())[:ANNOUNCE_MAX_CHARS]
+    if not text:
+        await socket.send_json({"type": "error", "message": "ยังไม่ได้พิมพ์ข้อความประกาศ"})
+        return
+
+    now = time.monotonic()
+    wait = ANNOUNCE_COOLDOWN - (now - _announce_at.get(client_id, -999.0))
+    if wait > 0:
+        await socket.send_json(
+            {"type": "error", "message": f"ประกาศถี่เกินไป รออีก {wait:.0f} วินาที"}
+        )
+        return
+    if now - _announce_last < ANNOUNCE_GAP:
+        await socket.send_json(
+            {"type": "error", "message": "มีประกาศอื่นเพิ่งออกไป รอสักครู่แล้วลองใหม่"}
+        )
+        return
+
+    scope = "all" if message.get("scope") == "all" else "room"
+    targets = await announce_targets(room, scope)
+    if not targets:
+        await socket.send_json({"type": "error", "message": "ยังไม่มีห้องที่เปิดใช้งานอยู่"})
+        return
+
+    speak = message.get("speak") is not False
+    rate = clamp_rate(message.get("rate", ANNOUNCE_RATE_DEFAULT))
+    duration = announce_ms(text, speak, rate)
+    ann = {
+        "id": secrets.token_hex(6),
+        "text": text,
+        "by": room.names.get(client_id, "ผู้ประกาศ"),
+        "fromRoom": room.code,
+        "scope": scope,
+        "speak": speak,
+        "rate": rate,
+        "chime": message.get("chime") is not False,
+        "duck": ANNOUNCE_DUCK,
+        "startedAt": now_ms(),
+        "endsAt": now_ms() + duration,
+    }
+
+    _announce_at[client_id] = now
+    _announce_last = now
+    await push_announcement(targets, ann)
+    asyncio.create_task(expire_announcement(targets, ann["id"], duration))
+    await socket.send_json(
+        {"type": "notice",
+         "message": f"ส่งประกาศไป {len(targets)} ห้องแล้ว" if scope == "all" else "ส่งประกาศในห้องนี้แล้ว"}
+    )
+
+
+async def handle_announce_stop(room: Room) -> None:
+    ann = room.announcement
+    if not ann:
+        return
+    # หยุดให้ครบทุกห้องที่ประกาศตัวเดียวกันนี้ไปถึง ไม่ใช่แค่ห้องของคนกดหยุด
+    targets = await announce_targets(room, ann.get("scope", "room"))
+    await push_announcement(targets, None, ann["id"])
 
 
 # ---------------- HTTP ----------------
@@ -425,6 +557,14 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         async with room.lock:
             room.open_control = bool(message.get("value"))
         await broadcast(room)
+        return
+
+    if kind == "announce":
+        await handle_announce(room, client_id, message, socket)
+        return
+
+    if kind == "announceStop":
+        await handle_announce_stop(room)
         return
 
     if kind not in CONTROL_ACTIONS:

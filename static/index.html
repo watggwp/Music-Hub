@@ -13,7 +13,7 @@
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="icon" href="/static/logo-mark.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://i.ytimg.com" />
-  <link rel="stylesheet" href="/static/style.css?v=27" />
+  <link rel="stylesheet" href="/static/style.css?v=29" />
 </head>
 
 <body>
@@ -58,6 +58,7 @@
         <strong id="roomCode">------</strong>
         <button type="button" id="copyLinkBtn" class="ghost small" title="คัดลอกลิงก์ห้องไปชวนเพื่อน">คัดลอกลิงก์</button>
         <button type="button" id="statsBtn" class="ghost small" title="ดูสถิติและอันดับ DJ ในห้องนี้">สถิติห้อง</button>
+        <button type="button" id="announceBtn" class="ghost small gold" title="ประกาศเสียงตามสายไปทุกห้อง">ประกาศ</button>
         <button type="button" id="leaveBtn" class="ghost small" title="กลับไปหน้าเลือกห้อง">ออกจากห้อง</button>
       </div>
       <div class="status">
@@ -67,6 +68,22 @@
         </button>
       </div>
     </header>
+
+    <div id="announceBanner" class="announce-banner" role="status" aria-live="assertive" hidden>
+      <span class="announce-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        </svg>
+      </span>
+      <div class="announce-body">
+        <span class="announce-from">ประกาศจาก <strong id="announceFrom">—</strong></span>
+        <p id="announceText"></p>
+      </div>
+      <button type="button" id="announceStopBtn" class="ghost small" title="หยุดประกาศนี้ทุกห้อง">หยุด</button>
+    </div>
 
     <section class="stage">
       <!-- ---------- ฝั่งเครื่องเล่น (เครื่องโฮสต์ส่งเสียง) ---------- -->
@@ -250,8 +267,58 @@
     </div>
   </div>
 
+  <!-- ================= Popup เขียนประกาศเสียงตามสาย ================= -->
+  <div id="announceModal" class="announce-modal" hidden>
+    <div class="announce-modal-card">
+      <div class="stats-head">
+        <div class="stats-title-group">
+          <strong>ประกาศเสียงตามสาย</strong>
+          <p class="muted tiny">ข้อความจะขึ้นทุกเครื่อง และอ่านออกเสียงที่ลำโพงของแต่ละห้อง</p>
+        </div>
+        <button type="button" id="closeAnnounceBtn" class="ghost small">✕</button>
+      </div>
+
+      <label for="announceInput">ข้อความประกาศ</label>
+      <textarea id="announceInput" maxlength="200" rows="3"
+        placeholder="เช่น เชิญทุกท่านที่ห้องประชุมใหญ่ ชั้น 3 ในอีก 10 นาที"></textarea>
+      <p class="hint"><span id="announceCount">0 / 200</span></p>
+
+      <div class="announce-opts">
+        <label for="announceScope">ส่งไปที่</label>
+        <select id="announceScope">
+          <option value="all">ทุกห้องที่เปิดอยู่</option>
+          <option value="room">เฉพาะห้องนี้</option>
+        </select>
+      </div>
+
+      <div class="announce-opts">
+        <label for="announceRate">ความเร็วเสียงอ่าน</label>
+        <select id="announceRate">
+          <option value="0.6">ช้ามาก</option>
+          <option value="0.7">ค่อนข้างช้า</option>
+          <option value="0.8" selected>ช้า (แนะนำ)</option>
+          <option value="0.9">ปกติ</option>
+          <option value="1">เร็ว</option>
+        </select>
+      </div>
+
+      <label class="toggle">
+        <input id="announceSpeak" type="checkbox" checked />
+        <span>อ่านออกเสียงที่ลำโพง <small class="tiny" id="announceVoiceHint"></small></span>
+      </label>
+      <button type="button" id="testVoiceBtn" class="ghost small">ลองเสียงที่เครื่องนี้</button>
+      <label class="toggle">
+        <input id="announceChime" type="checkbox" checked />
+        <span>เล่นเสียงเตือนก่อนอ่าน <small class="tiny">(ตุ๊งแต๊งสองจังหวะ)</small></span>
+      </label>
+
+      <p class="hint">เพลงจะถูกหรี่ลงเองระหว่างประกาศ แล้วคืนระดับเดิมเมื่ออ่านจบ · ประกาศได้ 1 ครั้งทุก 10 วินาที</p>
+      <button type="button" id="sendAnnounceBtn" class="primary">ส่งประกาศ</button>
+    </div>
+  </div>
+
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=37"></script>
+  <script src="/static/app.js?v=41"></script>
 </body>
 
 </html>

@@ -25,6 +25,7 @@ class Room:
         self.total_played = 0
         self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
         self.volume_seq = 0               # นับทุกครั้งที่มีคนสั่งเปลี่ยนเสียง
+        self.announcement: dict[str, Any] | None = None  # ประกาศที่กำลังออกอยู่ (None = ไม่มี)
         self.host_id: str | None = None
         self.clients: dict[str, Any] = {}  # client_id -> WebSocket
         self.names: dict[str, str] = {}
@@ -164,6 +165,22 @@ class Room:
         if value > 0:
             track["duration"] = round(value, 1)
 
+    # ---------- ประกาศ ----------
+    def set_announcement(self, ann: dict[str, Any] | None) -> None:
+        """ประกาศเก็บไว้ใน state ของห้อง ไม่ใช่ส่งเป็น event ครั้งเดียวจบ
+
+        เพราะเครื่องที่เพิ่งเข้าห้อง หรือเครื่องที่เพิ่งรับช่วงเป็นโฮสต์กลางคัน
+        ต้องรู้ว่าตอนนี้กำลังมีประกาศอยู่ ไม่งั้นเพลงจะดังทับเสียงประกาศ
+        """
+        self.announcement = ann
+
+    def clear_announcement(self, ann_id: str) -> bool:
+        """ล้างเฉพาะประกาศตัวที่ระบุ — กันตัวจับเวลาของประกาศเก่าไปล้างประกาศใหม่ทิ้ง"""
+        if self.announcement and self.announcement.get("id") == ann_id:
+            self.announcement = None
+            return True
+        return False
+
     # ---------- สิทธิ์ ----------
     def may_control(self, client_id: str) -> bool:
         return self.open_control or client_id == self.host_id
@@ -182,6 +199,7 @@ class Room:
             "totalPlayed": self.total_played,
             "volume": self.volume,
             "volumeSeq": self.volume_seq,
+            "announcement": self.announcement,
             "hostId": self.host_id,
             "listeners": [
                 {"id": cid, "name": self.names.get(cid, "ผู้ฟัง"), "host": cid == self.host_id}

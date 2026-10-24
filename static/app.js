@@ -162,6 +162,249 @@
     }, 150);
   }
 
+  /* ---------- ประกาศเสียงตามสาย ----------
+     ระหว่างประกาศ เครื่องโฮสต์จะ "หรี่" เพลงลงเฉย ๆ ไม่ได้ส่ง setVolume ขึ้นเซิร์ฟเวอร์
+     เพราะถ้าส่ง ระดับเสียงของห้องจะถูกเขียนทับจริง แถบเสียงบนมือถือทุกเครื่องจะกระตุก
+     และถ้ามีคนเลื่อนแถบเสียงระหว่างประกาศพอดี ค่าจะตีกันจนคืนค่าผิด
+     การหรี่จึงเป็นผลเฉพาะที่เครื่องโฮสต์ และ effectiveVolume() คำนวณใหม่ทุกครั้งที่ sync
+     ทำให้ค่าที่ผู้ใช้เพิ่งสั่งยังเป็นใหญ่เสมอ — หรี่ได้แต่ไม่มีทางดังเกินที่ผู้ใช้ตั้งไว้ */
+  let ttsVoices = [];
+  let announceId = null;       // id ประกาศที่เครื่องนี้จัดการไปแล้ว กันอ่านซ้ำทุกครั้งที่ state เด้ง
+  let announceDuck = 0;        // ระดับเสียงที่หรี่ลงระหว่างประกาศ (0 = ไม่ได้ประกาศอยู่)
+  let audioCtx = null;
+  let ttsKeepAlive = null;
+
+  const THAI_RE = /[\u0E00-\u0E7F]/;   // ช่วงอักษรไทยในยูนิโค้ด
+  const RATE_DEFAULT = 0.8;            // ช้ากว่าความเร็วปกติของเอนจิน ฟังทันตอนประกาศ
+
+  // ความเร็วที่เลือกไว้ในหน้าต่างประกาศ ใช้ตอนกดปุ่มลองเสียงและตอนส่งประกาศจริง
+  function chosenRate() {
+    const el = $("announceRate");
+    const value = el ? Number(el.value) : RATE_DEFAULT;
+    return Number.isFinite(value) ? value : RATE_DEFAULT;
+  }
+
+  /* บางเครื่องรายงาน lang ของเสียงไทยไม่ตรงมาตรฐาน (เจอทั้ง th, th-TH, th_TH และค่าว่าง)
+     จึงต้องดูจากชื่อเสียงเป็นทางสำรอง — รายชื่อนี้คือเสียงไทยที่มากับ Windows / macOS / Google */
+  const THAI_VOICE_HINTS = ["thai", "ไทย", "pattara", "premwadee", "niwat",
+                            "achara", "kanya", "narisa", "somsi"];
+
+  function isThaiVoice(voice) {
+    const lang = String(voice.lang || "").toLowerCase().replace("_", "-");
+    if (lang === "th" || lang.startsWith("th-")) return true;
+    const name = String(voice.name || "").toLowerCase();
+    return THAI_VOICE_HINTS.some((hint) => name.includes(hint));
+  }
+
+  /* getVoices() คืนลิสต์ว่างได้เสมอในรอบแรก เพราะเอนจินเสียงโหลดแบบ async
+     ถ้าไปเรียกตอน init แล้วจำค่าว่างไว้ เวลาประกาศจริงจะหาเสียงไทยไม่เจอ
+     แล้วตกไปใช้เสียงอังกฤษ ซึ่งอ่านอักษรไทยออกมาเป็นการสะกดทีละตัว
+     จึงต้องอ่านลิสต์ใหม่ทุกครั้งที่จะใช้ ไม่ใช่จำค่าจากตอนเปิดหน้า */
+  function refreshVoices() {
+    if (!window.speechSynthesis) return ttsVoices;
+    const list = window.speechSynthesis.getVoices() || [];
+    if (list.length) ttsVoices = list;
+    return ttsVoices;
+  }
+
+  function thaiVoice() {
+    return refreshVoices().find(isThaiVoice) || null;
+  }
+
+  function loadVoices() {
+    refreshVoices();
+    const hint = $("announceVoiceHint");
+    if (!hint) return;
+    if (!window.speechSynthesis) {
+      hint.textContent = "(เบราว์เซอร์นี้อ่านออกเสียงไม่ได้)";
+      return;
+    }
+    const voice = thaiVoice();
+    hint.textContent = voice
+      ? "(เครื่องนี้ใช้เสียง " + voice.name + ")"
+      : "(เครื่องนี้ยังไม่มีเสียงอ่านภาษาไทย ประกาศจะขึ้นเป็นข้อความอย่างเดียว)";
+  }
+
+  /* Chrome ตัดเสียงทิ้งเองเมื่ออ่านต่อเนื่องเกิน ~15 วินาที เป็นบั๊กที่มีมานาน
+     ประกาศ 200 ตัวอักษรใช้เวลาอ่านราว 45 วินาที จึงโดนตัดกลางประโยคแน่นอน
+     กระตุ้น resume() เป็นระยะระหว่างอ่านเพื่อกันไม่ให้คิวเสียงหลุด */
+  function startKeepAlive() {
+    stopKeepAlive();
+    ttsKeepAlive = setInterval(() => {
+      try {
+        if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
+        else stopKeepAlive();
+      } catch (_) { stopKeepAlive(); }
+    }, 9000);
+  }
+
+  function stopKeepAlive() {
+    clearInterval(ttsKeepAlive);
+    ttsKeepAlive = null;
+  }
+
+  // ระดับเสียงที่ควรใช้จริงตอนนี้ — หรี่แล้วต้องไม่ดังเกินค่าที่ผู้ใช้ตั้งไว้
+  function effectiveVolume() {
+    const want = wantedVolume();
+    return announceDuck > 0 ? Math.min(announceDuck, want) : want;
+  }
+
+  function applyVolumeClamped(value) {
+    applyVolume(announceDuck > 0 ? Math.min(announceDuck, value) : value);
+  }
+
+  function endDuck(forId) {
+    if (forId !== null && forId !== announceId) return;   // ประกาศเก่าถูกแทนที่ไปแล้ว อย่าไปแตะของใหม่
+    announceDuck = 0;
+    if (isHost) applyVolume(effectiveVolume());
+  }
+
+  /* เสียงเตือนก่อนประกาศ สร้างด้วย WebAudio ไม่ต้องมีไฟล์ mp3 ให้โหลด
+     สองโน้ตไล่ขึ้น เลียนเสียงออดตามสายของจริง */
+  function playChime() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const t0 = audioCtx.currentTime;
+      [[880, 0], [1174.7, 0.32]].forEach((pair) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = pair[0];
+        gain.gain.setValueAtTime(0.0001, t0 + pair[1]);
+        gain.gain.exponentialRampToValueAtTime(0.3, t0 + pair[1] + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + pair[1] + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t0 + pair[1]);
+        osc.stop(t0 + pair[1] + 0.45);
+      });
+    } catch (_) { }
+  }
+
+  /* เลือกเสียงที่จะใช้อ่านข้อความนี้ พร้อมเหตุผลไว้บอกผู้ใช้เมื่ออ่านไม่ได้
+
+     หัวใจอยู่ที่: ถ้าข้อความเป็นภาษาไทยแต่ไม่มีเสียงไทยในเครื่อง ต้อง "ไม่อ่าน"
+     ไม่ใช่ฝืนอ่านด้วยเสียงอังกฤษ เพราะเอนจินจะไล่สะกดทีละตัวอักษรออกมาแทนคำ
+     ("สวัสดี" กลายเป็น ส-วั-ส-ดี) ซึ่งฟังไม่รู้เรื่องยิ่งกว่าเงียบไปเฉย ๆ */
+  function pickVoice(text) {
+    if (!window.speechSynthesis) {
+      return { voice: null, reason: "เบราว์เซอร์ของลำโพงอ่านออกเสียงไม่ได้" };
+    }
+    const voice = thaiVoice();
+    if (voice) return { voice: voice, reason: "" };
+    if (THAI_RE.test(text)) {
+      return { voice: null,
+               reason: "ลำโพงเครื่องนี้ไม่มีเสียงอ่านภาษาไทย ถ้าฝืนอ่านจะได้เป็นการสะกดทีละตัว" };
+    }
+    // ข้อความไม่มีอักษรไทยเลย เสียงมาตรฐานของเครื่องอ่านได้อยู่แล้ว
+    return { voice: null, reason: "", useDefault: true };
+  }
+
+  function speakAnnouncement(text, delayMs, forId, rate) {
+    const synth = window.speechSynthesis;
+    const pick = pickVoice(text);
+    if (!pick.voice && !pick.useDefault) {
+      toast(pick.reason + " — ประกาศขึ้นเป็นข้อความอย่างเดียว", 7000);
+      endDuck(forId);
+      return;
+    }
+    setTimeout(() => {
+      if (forId !== announceId) return;      // มีประกาศใหม่แซงมาก่อน อันนี้ตกรุ่นแล้ว
+      try { synth.cancel(); } catch (_) { }
+      const u = new SpeechSynthesisUtterance(text);
+      if (pick.voice) {
+        u.voice = pick.voice;
+        u.lang = pick.voice.lang || "th-TH";
+      }
+      // ความเร็วมากับตัวประกาศ ทุกห้องจึงอ่านจังหวะเดียวกับที่ผู้ประกาศตั้งไว้
+      u.rate = rate || RATE_DEFAULT;
+      u.volume = 1;
+      let started = false;
+      u.onstart = () => { started = true; startKeepAlive(); };
+      u.onend = () => { stopKeepAlive(); endDuck(forId); };
+      u.onerror = () => { stopKeepAlive(); endDuck(forId); };
+      synth.speak(u);
+      // บางเอนจินไม่ยิง error ให้จับ ได้แต่เงียบไปเฉย ๆ ต้องเช็คว่าเริ่มอ่านจริงไหม
+      setTimeout(() => {
+        if (!started && forId === announceId) {
+          toast("ลำโพงเครื่องนี้อ่านข้อความไม่สำเร็จ — ประกาศขึ้นเป็นข้อความอย่างเดียว", 7000);
+          endDuck(forId);
+        }
+      }, 1800);
+    }, delayMs || 0);
+  }
+
+  // ปุ่มลองเสียงในหน้าต่างเขียนประกาศ ให้เช็คที่เครื่องลำโพงได้ก่อนประกาศจริง
+  function testVoice() {
+    loadVoices();
+    const sample = ($("announceInput").value || "").trim() || "ทดสอบเสียงประกาศ หนึ่ง สอง สาม";
+    const pick = pickVoice(sample);
+    if (!pick.voice && !pick.useDefault) { toast(pick.reason, 8000); return; }
+    try { window.speechSynthesis.cancel(); } catch (_) { }
+    const u = new SpeechSynthesisUtterance(sample);
+    if (pick.voice) { u.voice = pick.voice; u.lang = pick.voice.lang || "th-TH"; }
+    u.rate = chosenRate();
+    u.onstart = startKeepAlive;
+    u.onend = stopKeepAlive;
+    window.speechSynthesis.speak(u);
+    toast((pick.voice ? "กำลังลองด้วยเสียง " + pick.voice.name : "กำลังลองด้วยเสียงมาตรฐานของเครื่อง")
+      + " ที่ความเร็ว " + chosenRate().toFixed(2) + "x");
+  }
+
+  function handleAnnouncement() {
+    const ann = state ? state.announcement : null;
+    const banner = $("announceBanner");
+
+    if (!ann) {
+      if (announceId !== null) {
+        announceId = null;
+        announceDuck = 0;
+        stopKeepAlive();
+        try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) { }
+        if (isHost) applyVolume(effectiveVolume());
+      }
+      if (banner) banner.hidden = true;
+      return;
+    }
+
+    // แบนเนอร์ขึ้นทุกเครื่อง คนที่ไม่ได้อยู่ใกล้ลำโพงก็ยังอ่านได้
+    $("announceFrom").textContent = ann.by + (ann.scope === "all" ? " · ทุกห้อง" : "");
+    $("announceText").textContent = ann.text;
+    if (banner) banner.hidden = false;
+
+    if (ann.id === announceId) return;
+    announceId = ann.id;
+    announceDuck = ann.duck || 0;
+    if (!isHost) return;
+
+    applyVolume(effectiveVolume());
+    // เพิ่งรับช่วงเป็นโฮสต์ตอนประกาศใกล้จบ อ่านใหม่ตั้งแต่ต้นจะกวนกว่าเงียบ
+    if (ann.endsAt - serverNow() < 1000) { endDuck(ann.id); return; }
+    if (ann.chime) playChime();
+    if (ann.speak) speakAnnouncement(ann.text, ann.chime ? 850 : 0, ann.id, ann.rate);
+    else setTimeout(() => endDuck(ann.id), Math.max(0, ann.endsAt - serverNow()));
+  }
+
+  function sendAnnouncement() {
+    const text = ($("announceInput").value || "").trim();
+    if (!text) { toast("ยังไม่ได้พิมพ์ข้อความประกาศ"); return; }
+    localStorage.setItem("syntech.announceRate", String(chosenRate()));
+    send({
+      type: "announce",
+      text: text,
+      scope: $("announceScope").value,
+      speak: $("announceSpeak").checked,
+      chime: $("announceChime").checked,
+      rate: chosenRate(),
+    });
+    $("announceInput").value = "";
+    $("announceCount").textContent = "0 / 200";
+    $("announceModal").hidden = true;
+  }
+
   let rejectedUrl = null;
 
   function showAddNotice(message, url) {
@@ -441,6 +684,7 @@
         state = msg.room;
         reconcileVolume();
         applyRole();
+        handleAnnouncement();
         render();
         sync();
       } else if (msg.type === "error" || msg.type === "notice") {
@@ -486,7 +730,7 @@
       return;
     }
 
-    applyVolume(wantedVolume());
+    applyVolume(effectiveVolume());
     const target = targetPosition();
 
     if (loadedVideoId !== track.videoId) {
@@ -494,7 +738,7 @@
       awaitingLoad = true;
       markSelfAction();
       player.loadVideoById({ videoId: track.videoId, startSeconds: target });
-      setTimeout(() => { if (state) applyVolume(wantedVolume()); }, 800);
+      setTimeout(() => { if (state) applyVolume(effectiveVolume()); }, 800);
       return;
     }
 
@@ -859,6 +1103,12 @@
 
   function leaveRoom() {
     leaving = true;
+    announceId = null;
+    announceDuck = 0;
+    stopKeepAlive();
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) { }
+    if ($("announceBanner")) $("announceBanner").hidden = true;
+    if ($("announceModal")) $("announceModal").hidden = true;
     if (ws) ws.close();
     ws = null;
     destroyPlayer();
@@ -952,7 +1202,7 @@
       sendVolume(0, true);
     } else {
       const restore = lastNonZeroVolume || 70;
-      applyVolume(restore);
+      applyVolumeClamped(restore);
       sendVolume(restore, true);
     }
   }
@@ -1103,7 +1353,7 @@
     if (state) localVolumeSeq = state.volumeSeq;
     $("volLabel").textContent = value;
     paintVolume(value);
-    applyVolume(value);        // เครื่องโฮสต์ได้ยินผลทันที ไม่ต้องรอเซิร์ฟเวอร์ตอบ
+    applyVolumeClamped(value);  // เครื่องโฮสต์ได้ยินผลทันที ไม่ต้องรอเซิร์ฟเวอร์ตอบ
     sendVolume(value, false);
   });
   $("volume").addEventListener("change", (e) => {
@@ -1120,7 +1370,7 @@
     if ($("unblockBtn")) $("unblockBtn").hidden = true;
     if ($("unblockModal")) $("unblockModal").hidden = true;
     if (isHost && player && playerReady) {
-      applyVolume(wantedVolume());
+      applyVolume(effectiveVolume());
       if (player.isMuted && player.isMuted()) player.unMute();
       markSelfAction();
       player.playVideo();
@@ -1162,7 +1412,8 @@
   // ---------- คีย์บอร์ดลัด (Keyboard Shortcuts) ----------
   document.addEventListener("keydown", (e) => {
     const active = document.activeElement;
-    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"
+      || active.tagName === "SELECT" || active.isContentEditable)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
     const key = e.key;
@@ -1184,21 +1435,53 @@
     } else if (key === "ArrowUp") {
       e.preventDefault();
       const newVol = Math.min(100, wantedVolume() + 5);
-      applyVolume(newVol);
+      applyVolumeClamped(newVol);
       sendVolume(newVol, true);
     } else if (key === "ArrowDown") {
       e.preventDefault();
       const newVol = Math.max(0, wantedVolume() - 5);
-      applyVolume(newVol);
+      applyVolumeClamped(newVol);
       sendVolume(newVol, true);
     }
   });
+
+  // ---------- ประกาศเสียงตามสาย ----------
+  on("announceBtn", "click", () => {
+    const modal = $("announceModal");
+    if (!modal) return;
+    const savedRate = localStorage.getItem("syntech.announceRate");
+    if (savedRate && $("announceRate")) $("announceRate").value = savedRate;
+    loadVoices();
+    modal.hidden = false;
+    $("announceInput").focus();
+  });
+  on("closeAnnounceBtn", "click", () => { $("announceModal").hidden = true; });
+  on("announceModal", "click", (e) => {
+    if (e.target === $("announceModal")) $("announceModal").hidden = true;
+  });
+  on("announceInput", "input", (e) => {
+    $("announceCount").textContent = e.target.value.length + " / 200";
+  });
+  on("announceInput", "keydown", (e) => {
+    // Ctrl+Enter ส่งเลย — Enter เปล่าปล่อยให้ขึ้นบรรทัดใหม่ตามปกติของ textarea
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      sendAnnouncement();
+    }
+  });
+  on("sendAnnounceBtn", "click", sendAnnouncement);
+  on("testVoiceBtn", "click", testVoice);
+  on("announceStopBtn", "click", () => send({ type: "announceStop" }));
 
   // ---------- init ----------
   $("nameInput").value = localStorage.getItem("syntech.name") || localStorage.getItem("synhub.name") || "";
   setInterval(sync, 2000);          // แก้ drift ทุก 2 วินาที
   setInterval(tick, 250);           // อัปเดตแถบเวลา
   setInterval(measureClock, 15000); // ปรับนาฬิกาให้ตรงกับเซิร์ฟเวอร์
+
+  // รายชื่อเสียงอ่านโหลดแบบ async บางเบราว์เซอร์รอบแรกได้ลิสต์ว่าง ต้องฟัง event ซ้ำ
+  loadVoices();
+  if (window.speechSynthesis) window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
 
   if (location.hash.length > 1) {
     joinRoom(location.hash.slice(1));   // เปิดจากลิงก์ที่เพื่อนส่งมา = เข้าห้องเลย
