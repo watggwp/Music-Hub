@@ -20,7 +20,9 @@
   let playerReady = false;
   let ytApiReady = false;
   let wantPlayer = false;      // ต้องการ player แต่ YT API อาจยังไม่พร้อม
-  let isHost = null;           // null = ยังไม่รู้บทบาท ต้องตั้ง UI ครั้งแรกให้ครบ
+  let isHost = false;          // โฮสต์ = เจ้าของสิทธิ์ตั้งค่าห้อง (ไม่จำเป็นต้องเป็นลำโพง)
+  let isSpeaker = null;        // เครื่องนี้เปิดเสียงเพลงอยู่ไหม — null = ยังไม่รู้ ต้องตั้ง UI ครั้งแรกให้ครบ
+  let wantSelfSpeaker = false; // โหมดเลือกบางเครื่อง: ต่อใหม่แล้วขอเป็นลำโพงต่อ เพราะ id เครื่องเปลี่ยนทุกครั้งที่ต่อ
   let clientId = null;
   let state = null;            // snapshot ล่าสุดจากเซิร์ฟเวอร์
   let stateTs = 0;             // เวลาเซิร์ฟเวอร์ (ms) ที่ snapshot ถูกสร้าง
@@ -38,6 +40,10 @@
   const DRIFT_LIMIT = 1.2;     // วินาที — เกินกว่านี้ถึงจะ seek แก้
 
   const serverNow = () => Date.now() + clockOffset;
+  // ลำโพงหลัก = เครื่องเดียวที่รายงานเพลงจบ/เล่นไม่ได้ ไม่งั้นหลายลำโพงจะสั่งข้ามเพลงซ้อนกัน
+  const isLeader = () => !!state && state.leaderId === clientId;
+  // โหมดหลายลำโพง ต่างคนต่างใส่หูฟัง ระดับเสียงจึงเป็นของแต่ละเครื่อง ไม่ใช่ของห้อง
+  const personalVolume = () => !!state && state.speakerMode !== "single";
   const currentTrack = () => (state ? state.queue[0] || null : null);   // คิวไหลจากหัวแถว
 
   function targetPosition() {
@@ -67,8 +73,15 @@
   let localVolumeAt = 0;
   let localVolumeSeq = -1;     // ค่า volumeSeq ตอนที่เครื่องนี้สั่ง
 
+  let myVolume = 50;           // ระดับเสียงของเครื่องนี้เอง ใช้ในโหมดหลายลำโพง
+  try {
+    const saved = Number(localStorage.getItem("syntech.myVolume"));
+    if (localStorage.getItem("syntech.myVolume") !== null && Number.isFinite(saved)) myVolume = saved;
+  } catch (_) { }
+
   // ค่าที่ควรใช้จริง: ของที่เพิ่งลางเองมาก่อน ไม่ให้ sync รอบถัดไปดึงกลับค่าเก่า
   function wantedVolume() {
+    if (personalVolume()) return myVolume;
     if (localVolume !== null) return localVolume;
     return state ? state.volume : 70;
   }
@@ -141,6 +154,23 @@
     if (slider.style && slider.style.setProperty) {
       slider.style.setProperty("--fill", Math.max(0, Math.min(100, value)) + "%");
     }
+  }
+
+  /* ผู้ใช้ปรับเสียงเอง (แถบเสียง ปุ่ม mute คีย์ลัด) ทุกทางต้องผ่านตรงนี้
+     โหมดหลายลำโพงปรับเฉพาะเครื่องนี้ ไม่ส่งขึ้นห้อง ไม่งั้นคนเดียวเร่งเสียงจะดังเข้าหูฟังทุกคน */
+  function userVolume(value, flush) {
+    if (personalVolume()) {
+      myVolume = value;
+      try { localStorage.setItem("syntech.myVolume", String(value)); } catch (_) { }
+      applyVolumeClamped(value);
+      if (!draggingVolume) render();   // ไม่มี broadcast กลับมา ต้องวาดแถบเสียงเอง
+      return;
+    }
+    localVolume = value;
+    localVolumeAt = Date.now();
+    if (state) localVolumeSeq = state.volumeSeq;
+    applyVolumeClamped(value);
+    sendVolume(value, flush);
   }
 
   // ลากแถบเสียงทีเดียวยิงได้เป็นสิบ event — รวบส่งเป็นชุดกัน broadcast ท่วม
@@ -256,7 +286,7 @@
   function endDuck(forId) {
     if (forId !== null && forId !== announceId) return;   // ประกาศเก่าถูกแทนที่ไปแล้ว อย่าไปแตะของใหม่
     announceDuck = 0;
-    if (isHost) applyVolume(effectiveVolume());
+    if (isSpeaker) applyVolume(effectiveVolume());
   }
 
   /* เสียงเตือนก่อนประกาศ สร้างด้วย WebAudio ไม่ต้องมีไฟล์ mp3 ให้โหลด
@@ -364,7 +394,7 @@
         announceDuck = 0;
         stopKeepAlive();
         try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) { }
-        if (isHost) applyVolume(effectiveVolume());
+        if (isSpeaker) applyVolume(effectiveVolume());
       }
       if (banner) banner.hidden = true;
       return;
@@ -378,7 +408,7 @@
     if (ann.id === announceId) return;
     announceId = ann.id;
     announceDuck = ann.duck || 0;
-    if (!isHost) return;
+    if (!isSpeaker) return;
 
     applyVolume(effectiveVolume());
     // เพิ่งรับช่วงเป็นโฮสต์ตอนประกาศใกล้จบ อ่านใหม่ตั้งแต่ต้นจะกวนกว่าเงียบ
@@ -599,12 +629,17 @@
           if (e.data === YT.PlayerState.ENDED) {
             awaitingLoad = false;
             const track = currentTrack();
-            if (track) send({ type: "ended", videoId: track.videoId });
+            if (track && isLeader()) send({ type: "ended", videoId: track.videoId });
           }
         },
         onError: (e) => {
-          toast(errorText(e.data));
           const track = currentTrack();
+          if (!isLeader()) {
+            // ลำโพงรองเล่นไม่ได้ ไม่ได้แปลว่าเครื่องอื่นเล่นไม่ได้ อย่าสั่งข้ามเพลงของทั้งห้อง
+            toast("เครื่องนี้เล่นคลิปนี้ไม่ได้ (error " + e.data + ") — เครื่องอื่นยังเล่นต่อ");
+            return;
+          }
+          toast(errorText(e.data));
           if (track) send({ type: "trackError", videoId: track.videoId, code: e.data });
         },
       },
@@ -640,21 +675,40 @@
   }
 
   function applyRole() {
-    const nowHost = state.hostId === clientId;
-    if (nowHost === isHost) return;
-    const firstTime = isHost === null;
-    isHost = nowHost;
+    isHost = state.hostId === clientId;
+    const nowSpeaker = (state.speakers || []).includes(clientId);
+    if (state.speakerMode === "selected") wantSelfSpeaker = nowSpeaker;
+    if (nowSpeaker === isSpeaker) return;
+    const firstTime = isSpeaker === null;
+    isSpeaker = nowSpeaker;
     const remoteOverlay = $("remoteOverlay");
-    if (remoteOverlay) remoteOverlay.hidden = isHost;
-    const claimBtn = $("claimBtn");
-    if (claimBtn) claimBtn.hidden = isHost;
-    if (isHost) {
+    if (remoteOverlay) remoteOverlay.hidden = isSpeaker;
+    if (isSpeaker) {
       wantPlayer = true;
       createPlayer();
-      if (!firstTime) toast("เครื่องนี้เป็นลำโพงของห้องแล้ว");
+      if (!firstTime) toast("เครื่องนี้เปิดเสียงเพลงแล้ว");
     } else {
       destroyPlayer();
-      if (!firstTime) toast("ลำโพงย้ายไปเครื่องอื่นแล้ว เครื่องนี้เป็นรีโมท");
+      if (!firstTime) toast("เครื่องนี้หยุดเปิดเสียงแล้ว เป็นรีโมท");
+    }
+  }
+
+  // ปุ่มบนหัวจอเปลี่ยนหน้าที่ตามโหมด: ย้ายลำโพง / เปิด-ปิดเสียงเครื่องนี้ / ไม่ต้องมี
+  function renderClaimBtn() {
+    const btn = $("claimBtn");
+    if (!btn) return;
+    const mode = state.speakerMode || "single";
+    if (mode === "all" || (mode === "single" && isSpeaker)) {
+      btn.hidden = true;
+      return;
+    }
+    btn.hidden = false;
+    if (mode === "single") {
+      btn.textContent = "ย้ายลำโพงมาเครื่องนี้";
+      btn.title = "ย้ายลำโพงมาเปิดที่เครื่องนี้";
+    } else {
+      btn.textContent = isSpeaker ? "ปิดเสียงที่เครื่องนี้" : "เปิดเสียงที่เครื่องนี้";
+      btn.title = "เลือกว่าเครื่องนี้จะเป็นลำโพงด้วยไหม";
     }
   }
 
@@ -666,6 +720,7 @@
     ws.onopen = () => {
       badge("เชื่อมต่อแล้ว", "ok");
       send({ type: "hello", name: myName });
+      if (wantSelfSpeaker) send({ type: "setSpeaker", value: true });
       measureClock();
     };
     ws.onclose = () => {
@@ -716,7 +771,7 @@
 
   // ---------- ตัวซิงก์ (ทำงานเฉพาะเครื่องโฮสต์) ----------
   function sync() {
-    if (!isHost || !state) return;
+    if (!isSpeaker || !state) return;
     if (!player || !playerReady) {
       if (wantPlayer) {
         if (!ytApiReady && typeof YT !== "undefined" && YT && YT.Player) ytApiReady = true;
@@ -745,7 +800,7 @@
 
     // รายงานความยาวเพลงให้เครื่องรีโมทใช้วาดแถบเวลา
     const duration = player.getDuration() || 0;
-    if (duration && Math.abs((track.duration || 0) - duration) > 1) {
+    if (isLeader() && duration && Math.abs((track.duration || 0) - duration) > 1) {
       send({ type: "duration", videoId: track.videoId, seconds: duration });
     }
 
@@ -790,13 +845,31 @@
     const canControl = isHost || state.openControl;
     $("shuffleBtn").disabled = !canControl || state.queue.length <= 1;
     $("clearQueueBtn").disabled = !canControl || state.queue.length === 0;
-    $("roleBadge").textContent = isHost ? "เครื่องนี้คือลำโพง" : "รีโมท (ไม่มีเสียง)";
-    $("roleBadge").className = "badge " + (isHost ? "ok" : "");
+    const mode = state.speakerMode || "single";
+    $("roleBadge").textContent = !isSpeaker ? "รีโมท (ไม่มีเสียง)"
+      : mode === "single" ? "เครื่องนี้คือลำโพง" : "เครื่องนี้เปิดเสียงอยู่";
+    $("roleBadge").className = "badge " + (isSpeaker ? "ok" : "");
+    renderClaimBtn();
 
-    const host = state.listeners.find((l) => l.host);
-    $("remoteWho").textContent = host
-      ? "เสียงออกที่เครื่องของ " + host.name
-      : "ยังไม่มีเครื่องไหนเป็นลำโพง";
+    const speakers = state.listeners.filter((l) => l.speaker);
+    $("remoteWho").textContent = !speakers.length ? "ยังไม่มีเครื่องไหนเป็นลำโพง"
+      : speakers.length === 1 ? "เสียงออกที่เครื่องของ " + speakers[0].name
+      : "เสียงออก " + speakers.length + " เครื่อง";
+
+    const modeSel = $("speakerMode");
+    // อย่าเขียนทับตอนผู้ใช้กำลังเลือกอยู่ ไม่งั้นรายการจะเด้งกลับ
+    if (modeSel && document.activeElement !== modeSel) modeSel.value = mode;
+    const speakerHint = $("speakerHint");
+    if (speakerHint) {
+      speakerHint.textContent = mode === "single" ? "เสียงออกเครื่องเดียว เครื่องอื่นเป็นรีโมท"
+        : mode === "all" ? "ทุกเครื่องเปิดเสียงพร้อมกัน เหมาะกับต่างคนต่างใส่หูฟัง · แถบเสียงปรับเฉพาะเครื่องตัวเอง"
+        : "แตะป้ายลำโพง/รีโมทหลังชื่อเพื่อสลับ · แถบเสียงปรับเฉพาะเครื่องตัวเอง";
+    }
+    const volHint = $("volHint");
+    if (volHint) {
+      volHint.textContent = (personalVolume() ? "แถบเสียงปรับเฉพาะเครื่องนี้" : "แถบเสียงคุมลำโพงของห้อง")
+        + " · คลิกแถบเวลาเพื่อเลื่อน";
+    }
     // ตั้ง src เฉพาะตอนที่เปลี่ยนเพลงจริง ไม่งั้นทุกครั้งที่ render จะสั่งโหลดรูปใหม่
     const artEl = $("remoteArt");
     artEl.decoding = "async";
@@ -860,13 +933,20 @@
     listeners.innerHTML = "";
     state.listeners.forEach((l) => {
       const li = document.createElement("li");
-      if (l.host) li.className = "is-speaker";
+      if (l.speaker) li.className = "is-speaker";
       const nm = document.createElement("span");
       nm.className = "ln";
       nm.textContent = l.name + (l.id === clientId ? " (คุณ)" : "");
-      const tag = document.createElement("small");
+      // โหมดเลือกบางเครื่อง ป้ายกลายเป็นปุ่มสลับ ใครก็กดให้เครื่องไหนเป็นลำโพงได้
+      const tag = document.createElement(mode === "selected" ? "button" : "small");
       tag.className = "role-tag";
-      tag.textContent = l.host ? "ลำโพง" : "รีโมท";
+      tag.textContent = l.speaker ? "ลำโพง" : "รีโมท";
+      if (mode === "selected") {
+        tag.type = "button";
+        tag.dataset.speaker = l.id;
+        tag.dataset.on = l.speaker ? "1" : "";
+        tag.title = l.speaker ? "แตะเพื่อปิดเสียงเครื่องนี้" : "แตะเพื่อให้เครื่องนี้เปิดเสียง";
+      }
       li.append(nm, tag);
       listeners.appendChild(li);
     });
@@ -1023,7 +1103,7 @@
   function tick() {
     if (!state) return;
     const track = currentTrack();
-    const duration = isHost && playerReady
+    const duration = isSpeaker && playerReady
       ? player.getDuration() || 0
       : (track && track.duration) || 0;
     const pos = duration ? Math.min(targetPosition(), duration) : targetPosition();
@@ -1113,7 +1193,9 @@
     if (ws) ws.close();
     ws = null;
     destroyPlayer();
-    isHost = null;
+    isHost = false;
+    isSpeaker = null;
+    wantSelfSpeaker = false;
     state = null;
     clientId = null;
     history.replaceState(null, "", location.pathname);
@@ -1144,7 +1226,15 @@
     hideAddNotice();
   });
   on("dismissNoticeBtn", "click", hideAddNotice);
-  on("claimBtn", "click", () => send({ type: "claimHost" }));
+  on("claimBtn", "click", () => {
+    if (state && state.speakerMode === "selected") send({ type: "setSpeaker", value: !isSpeaker });
+    else send({ type: "claimHost" });
+  });
+  on("speakerMode", "change", (e) => send({ type: "setSpeakerMode", mode: e.target.value }));
+  on("listeners", "click", (e) => {
+    const tag = e.target.closest("button[data-speaker]");
+    if (tag) send({ type: "setSpeaker", id: tag.dataset.speaker, value: !tag.dataset.on });
+  });
 
   on("copyLinkBtn", "click", async () => {
     try {
@@ -1199,12 +1289,9 @@
     const cur = wantedVolume();
     if (cur > 0) {
       lastNonZeroVolume = cur;
-      applyVolume(0);
-      sendVolume(0, true);
+      userVolume(0, true);
     } else {
-      const restore = lastNonZeroVolume || 70;
-      applyVolumeClamped(restore);
-      sendVolume(restore, true);
+      userVolume(lastNonZeroVolume || 70, true);
     }
   }
 
@@ -1351,28 +1438,20 @@
   $("volume").addEventListener("input", (e) => {
     draggingVolume = true;
     const value = Number(e.target.value);
-    localVolume = value;
-    localVolumeAt = Date.now();
-    if (state) localVolumeSeq = state.volumeSeq;
     $("volLabel").textContent = value;
     paintVolume(value);
-    applyVolumeClamped(value);  // เครื่องโฮสต์ได้ยินผลทันที ไม่ต้องรอเซิร์ฟเวอร์ตอบ
-    sendVolume(value, false);
+    userVolume(value, false);  // เครื่องลำโพงได้ยินผลทันที ไม่ต้องรอเซิร์ฟเวอร์ตอบ
   });
   $("volume").addEventListener("change", (e) => {
     draggingVolume = false;
-    const value = Number(e.target.value);
-    localVolume = value;
-    localVolumeAt = Date.now();
-    if (state) localVolumeSeq = state.volumeSeq;
-    sendVolume(value, true);   // ค่าสุดท้ายส่งทันที ไม่ตกหล่น
+    userVolume(Number(e.target.value), true);   // ค่าสุดท้ายส่งทันที ไม่ตกหล่น
   });
 
   function unlockAudio() {
     blockedTicks = 0;
     if ($("unblockBtn")) $("unblockBtn").hidden = true;
     if ($("unblockModal")) $("unblockModal").hidden = true;
-    if (isHost && player && playerReady) {
+    if (isSpeaker && player && playerReady) {
       applyVolume(effectiveVolume());
       if (player.isMuted && player.isMuted()) player.unMute();
       markSelfAction();
@@ -1389,7 +1468,7 @@
     // เพิ่งมีคำสั่ง play/pause ของเราเองค้างอยู่ อย่าเพิ่งไปสั่งเล่นทับ
     // ไม่งั้นจังหวะที่ผู้ใช้กดหยุดในกรอบ YouTube แล้วมาแตะหน้าจอ เพลงจะเด้งกลับมาเล่น
     if (isSelfAction()) return;
-    if (isHost && player && playerReady) {
+    if (isSpeaker && player && playerReady) {
       if (blockedTicks > 0 || ($("unblockModal") && !$("unblockModal").hidden)) {
         unlockAudio();
       } else {
@@ -1404,7 +1483,7 @@
   // คลิกบนแถบเวลาเพื่อ seek — ส่งขึ้นเซิร์ฟเวอร์ให้ทุกเครื่องกระโดดตาม
   document.querySelector(".bar").addEventListener("click", (e) => {
     const track = currentTrack();
-    const duration = isHost && playerReady
+    const duration = isSpeaker && playerReady
       ? player.getDuration() || 0
       : (track && track.duration) || 0;
     if (!duration) return;
@@ -1437,14 +1516,10 @@
       $("shuffleBtn").click();
     } else if (key === "ArrowUp") {
       e.preventDefault();
-      const newVol = Math.min(100, wantedVolume() + 5);
-      applyVolumeClamped(newVol);
-      sendVolume(newVol, true);
+      userVolume(Math.min(100, wantedVolume() + 5), true);
     } else if (key === "ArrowDown") {
       e.preventDefault();
-      const newVol = Math.max(0, wantedVolume() - 5);
-      applyVolumeClamped(newVol);
-      sendVolume(newVol, true);
+      userVolume(Math.max(0, wantedVolume() - 5), true);
     }
   });
 

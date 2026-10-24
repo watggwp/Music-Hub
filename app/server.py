@@ -349,6 +349,7 @@ async def websocket_endpoint(socket: WebSocket, code: str) -> None:
         async with room.lock:
             room.clients.pop(client_id, None)
             room.names.pop(client_id, None)
+            room.speakers.discard(client_id)
             if room.host_id == client_id:
                 room.host_id = next(iter(room.clients), None)
             if not room.clients:
@@ -570,9 +571,24 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         await broadcast(room)
         return
 
-    # ---- ข้อความที่รับจากเครื่องโฮสต์เท่านั้น ----
+    # ---- เลือกเครื่องที่เป็นลำโพง — ใครก็ตั้งได้ ----
+    if kind == "setSpeakerMode":
+        async with room.lock:
+            room.set_speaker_mode(message.get("mode"))
+        await broadcast(room)
+        return
+
+    if kind == "setSpeaker":
+        # ไม่ระบุ id = เครื่องตัวเอง (ใช้ตอนต่อใหม่ ซึ่งยังไม่รู้ id ใหม่ของตัวเอง)
+        target_id = str(message.get("id") or client_id)
+        async with room.lock:
+            room.set_speaker(target_id, message.get("value"))
+        await broadcast(room)
+        return
+
+    # ---- ข้อความที่รับจากลำโพงหลักเท่านั้น ----
     if kind in {"ended", "trackError", "duration"}:
-        if client_id != room.host_id:
+        if client_id != room.leader_id():
             return
         video_id = str(message.get("videoId") or "")
 

@@ -1591,6 +1591,38 @@ a.yt {
   color: var(--accent-2);
 }
 
+/* โหมดเลือกบางเครื่อง ป้ายบทบาทกลายเป็นปุ่มสลับ */
+button.role-tag {
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: .66rem;
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+}
+
+@media (hover: hover) {
+  button.role-tag:hover {
+    border-color: var(--accent-2);
+  }
+}
+
+/* ---- ตัวเลือกโหมดลำโพง ---- */
+.mode-select {
+  min-height: 32px;
+  padding: .25rem .6rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: .8rem;
+}
+
+.mode-select:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
 /* ---- สวิตช์ให้ทุกเครื่องคุมเพลง ---- */
 .toggle {
   display: flex;

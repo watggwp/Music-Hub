@@ -29,6 +29,8 @@ class Room:
         self.volume_seq = 0               # นับทุกครั้งที่มีคนสั่งเปลี่ยนเสียง
         self.announcement: dict[str, Any] | None = None  # ประกาศที่กำลังออกอยู่ (None = ไม่มี)
         self.host_id: str | None = None
+        self.speaker_mode = "single"      # "single" = ลำโพงเครื่องเดียว, "all" = ทุกเครื่อง, "selected" = บางเครื่อง
+        self.speakers: set[str] = set()   # เครื่องที่ถูกเลือกเป็นลำโพง ใช้เฉพาะโหมด "selected"
         self.clients: dict[str, Any] = {}  # client_id -> WebSocket
         self.names: dict[str, str] = {}
         self.lock = asyncio.Lock()
@@ -193,11 +195,47 @@ class Room:
             return True
         return False
 
+    # ---------- ลำโพง ----------
+    def speaker_ids(self) -> list[str]:
+        """เครื่องที่ต้องเปิดเสียงเพลงตอนนี้ ตามโหมดของห้อง"""
+        if self.speaker_mode == "all":
+            return list(self.clients)
+        if self.speaker_mode == "selected":
+            return [cid for cid in self.clients if cid in self.speakers]
+        return [self.host_id] if self.host_id in self.clients else []
+
+    def leader_id(self) -> str | None:
+        """ลำโพงหลัก — เครื่องเดียวที่มีสิทธิ์รายงานว่าเพลงจบ/เล่นไม่ได้/ยาวเท่าไร
+
+        ถ้าลำโพงทุกเครื่องรายงานกันเอง เพลงจะถูกข้ามซ้อนกันหลายรอบ
+        """
+        ids = self.speaker_ids()
+        if self.host_id in ids:
+            return self.host_id
+        return ids[0] if ids else None
+
+    def set_speaker_mode(self, mode: Any) -> None:
+        if mode not in {"single", "all", "selected"} or mode == self.speaker_mode:
+            return
+        if mode == "selected":
+            # เริ่มจากเครื่องที่เป็นลำโพงอยู่แล้ว เสียงจะได้ไม่หายกะทันหันตอนสลับโหมด
+            self.speakers = set(self.speaker_ids())
+        self.speaker_mode = str(mode)
+
+    def set_speaker(self, client_id: str, value: Any) -> None:
+        if self.speaker_mode != "selected" or client_id not in self.clients:
+            return
+        if value:
+            self.speakers.add(client_id)
+        else:
+            self.speakers.discard(client_id)
+
     # ---------- สิทธิ์ ----------
     def may_control(self, client_id: str) -> bool:
         return self.open_control or client_id == self.host_id
 
     def snapshot(self) -> dict[str, Any]:
+        speakers = self.speaker_ids()
         return {
             "code": self.code,
             "queue": self.queue,
@@ -213,8 +251,12 @@ class Room:
             "volumeSeq": self.volume_seq,
             "announcement": self.announcement,
             "hostId": self.host_id,
+            "speakerMode": self.speaker_mode,
+            "speakers": speakers,
+            "leaderId": self.leader_id(),
             "listeners": [
-                {"id": cid, "name": self.names.get(cid, "ผู้ฟัง"), "host": cid == self.host_id}
+                {"id": cid, "name": self.names.get(cid, "ผู้ฟัง"), "host": cid == self.host_id,
+                 "speaker": cid in speakers}
                 for cid in self.clients
             ],
         }
