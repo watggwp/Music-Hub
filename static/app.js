@@ -38,6 +38,8 @@
   let dragState = null;        // ระหว่างลากย้ายลำดับเพลงในคิว
 
   const DRIFT_LIMIT = 1.2;     // วินาที — เกินกว่านี้ถึงจะ seek แก้
+  const LOAD_GRACE_MS = 8000;  // หลังสั่งโหลดเพลงใหม่ ยังไม่เล่นภายในช่วงนี้ถือว่ากำลังโหลด ไม่ใช่โดนบล็อก
+  let loadStartedAt = 0;
 
   const serverNow = () => Date.now() + clockOffset;
   // ลำโพงหลัก = เครื่องเดียวที่รายงานเพลงจบ/เล่นไม่ได้ ไม่งั้นหลายลำโพงจะสั่งข้ามเพลงซ้อนกัน
@@ -791,6 +793,7 @@
 
     if (loadedVideoId !== track.videoId) {
       loadedVideoId = track.videoId;
+      loadStartedAt = Date.now();
       awaitingLoad = true;
       markSelfAction();
       player.loadVideoById({ videoId: track.videoId, startSeconds: target });
@@ -808,14 +811,21 @@
     if (Math.abs(actual - target) > DRIFT_LIMIT) player.seekTo(target, true);
 
     const ps = player.getPlayerState();
-    if (state.playing && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
+    /* เพลงจบแล้ว กำลังรอเซิร์ฟเวอร์ขึ้นเพลงถัดไป — ไม่ใช่โดนบล็อก และห้ามสั่ง playVideo()
+       ไม่งั้นเพลงที่จบไปจะเด้งกลับมาเล่นตั้งแต่ต้นแวบหนึ่ง
+       เจอบ่อยในโหมดหลายลำโพง เพราะลำโพงรองจบก่อนลำโพงหลักได้เกือบวินาที
+       (ถ้าเซิร์ฟเวอร์สั่งกลับไปต้นเพลง เช่น วนซ้ำเพลงเดียว target จะต่ำกว่า actual มาก จึงไม่เข้าเงื่อนไขนี้) */
+    const waitingNext = ps === YT.PlayerState.ENDED && target >= actual - DRIFT_LIMIT;
+    if (state.playing && !waitingNext && ps !== YT.PlayerState.PLAYING && ps !== YT.PlayerState.BUFFERING) {
       markSelfAction();
       player.playVideo();
       /* สั่งเล่นแล้วยังไม่ขยับ = น่าจะโดนบล็อกเสียงอยู่
          ต้องรอ 2 รอบ (~4 วิ) ก่อนขึ้น popup — รอบเดียวมันเร็วเกินไป
          จังหวะที่ผู้ใช้เพิ่งกดหยุดเองแล้ว state ฝั่งเซิร์ฟเวอร์ยังตามไม่ทัน
-         จะโดนเหมารวมว่าโดนบล็อกทั้งที่ไม่ใช่ */
-      if (++blockedTicks >= 2) {
+         จะโดนเหมารวมว่าโดนบล็อกทั้งที่ไม่ใช่
+         ไม่นับช่วงที่เพิ่งโหลดเพลงใหม่ (เน็ตช้า/โฆษณากำลังโหลด) และตอนแท็บถูกซ่อน */
+      const loading = Date.now() - loadStartedAt < LOAD_GRACE_MS;
+      if (!loading && !document.hidden && ++blockedTicks >= 2) {
         if ($("unblockModal")) $("unblockModal").hidden = false;
         if ($("unblockBtn")) $("unblockBtn").hidden = false;
       }
@@ -1554,6 +1564,8 @@
   // ---------- init ----------
   $("nameInput").value = localStorage.getItem("syntech.name") || localStorage.getItem("synhub.name") || "";
   setInterval(sync, 2000);          // แก้ drift ทุก 2 วินาที
+  // กลับมาที่แท็บ/เปิดจอมือถือ ซิงก์ทันที ไม่ต้องรอรอบถัดไป
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) sync(); });
   setInterval(tick, 250);           // อัปเดตแถบเวลา
   setInterval(measureClock, 15000); // ปรับนาฬิกาให้ตรงกับเซิร์ฟเวอร์
 
