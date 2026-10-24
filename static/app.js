@@ -61,7 +61,7 @@
 
   function errorText(code) {
     if (code === 101 || code === 150) {
-      return "เจ้าของคลิปปิดการเล่นแบบฝัง — ข้ามให้แล้ว ต้องเลือกคลิปอื่นหรือเปิดใน YouTube เอง";
+      return "YouTube ไม่ยอมให้เล่นคลิปนี้ (เจ้าของปิดการฝัง หรือถูกจำกัดชั่วคราว) ลองใหม่แล้วไม่ผ่าน — ข้ามให้แล้ว";
     }
     if (code === 100) return "คลิปนี้ถูกลบ เป็นส่วนตัว หรือถูกจำกัดพื้นที่ — ข้ามให้แล้ว";
     if (code === 5) return "เบราว์เซอร์นี้เล่นคลิปดังกล่าวไม่ได้ — ข้ามให้แล้ว";
@@ -614,6 +614,10 @@
           }
 
           if (isPlay) {
+            if (retry.videoId === loadedVideoId && retry.count > 0) {
+              reportPlayError(loadedVideoId, -1, retry.count, "recovered");   // ลองใหม่แล้วเล่นได้
+            }
+            retry = { videoId: null, count: 0 };
             if (state) applyVolume(wantedVolume());
             // ปิดคำบรรยาย/ซับไตเติลให้อัตโนมัติโดยไม่ทำให้ตัวเล่นค้าง
             try {
@@ -634,18 +638,55 @@
             if (track && isLeader()) send({ type: "ended", videoId: track.videoId });
           }
         },
-        onError: (e) => {
-          const track = currentTrack();
-          if (!isLeader()) {
-            // ลำโพงรองเล่นไม่ได้ ไม่ได้แปลว่าเครื่องอื่นเล่นไม่ได้ อย่าสั่งข้ามเพลงของทั้งห้อง
-            toast("เครื่องนี้เล่นคลิปนี้ไม่ได้ (error " + e.data + ") — เครื่องอื่นยังเล่นต่อ");
-            return;
-          }
-          toast(errorText(e.data));
-          if (track) send({ type: "trackError", videoId: track.videoId, code: e.data });
-        },
+        onError: (e) => handlePlayerError(e.data),
       },
     });
+  }
+
+  /* error 101/150 ไม่ได้แปลว่าเจ้าของปิดการฝังเสมอไป YouTube ใช้รหัสเดียวกันตอนจำกัดการเล่นชั่วคราว
+     (โหลดถี่จาก IP เดียวกัน, เงื่อนไขลิขสิทธิ์ของค่ายเพลง) ซึ่งลองใหม่มักเล่นได้
+     จึงลองโหลดใหม่ก่อน RETRY_MAX ครั้ง เว้นระยะห่างขึ้นเรื่อย ๆ ไม่ให้ไปกระหน่ำโหลดจนโดนจำกัดหนักกว่าเดิม
+     error 5 (HTML5 player ขัดข้อง) ก็ชั่วคราวได้เหมือนกัน ส่วน 2/100 คือลิงก์ผิด/คลิปหาย ลองไปก็ไม่ได้ */
+  const RETRY_CODES = [5, 101, 150];
+  const RETRY_MAX = 2;
+  let retry = { videoId: null, count: 0 };
+  let retryTimer = null;
+
+  function reportPlayError(videoId, code, attempt, outcome) {
+    send({ type: "playError", videoId: videoId, code: code, attempt: attempt, outcome: outcome });
+  }
+
+  function handlePlayerError(code) {
+    const track = currentTrack();
+    if (!track) return;
+    if (retry.videoId !== track.videoId) retry = { videoId: track.videoId, count: 0 };
+
+    if (RETRY_CODES.includes(code) && retry.count < RETRY_MAX) {
+      retry.count += 1;
+      reportPlayError(track.videoId, code, retry.count, "retry");
+      toast("YouTube ยังไม่ยอมเล่นคลิปนี้ กำลังลองใหม่ (" + retry.count + "/" + RETRY_MAX + ")…", 3500);
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        const now = currentTrack();
+        // ระหว่างรอ เพลงอาจถูกข้ามไปแล้ว หรือเครื่องนี้เลิกเป็นลำโพงแล้ว
+        if (!now || now.videoId !== retry.videoId || !isSpeaker || !playerReady) return;
+        loadStartedAt = Date.now();
+        awaitingLoad = true;
+        markSelfAction();
+        player.loadVideoById({ videoId: now.videoId, startSeconds: targetPosition() });
+      }, 2500 * retry.count);
+      return;
+    }
+
+    reportPlayError(track.videoId, code, retry.count, "gave-up");
+    if (!isLeader()) {
+      // ลำโพงรองเล่นไม่ได้ ไม่ได้แปลว่าเครื่องอื่นเล่นไม่ได้ อย่าสั่งข้ามเพลงของทั้งห้อง
+      toast("เครื่องนี้เล่นคลิปนี้ไม่ได้ (error " + code + ") — เครื่องอื่นยังเล่นต่อ");
+      return;
+    }
+    toast(errorText(code));
+    send({ type: "trackError", videoId: track.videoId, code: code });
   }
 
   /* YouTube ยิง event PLAYING/PAUSED ทั้งตอนผู้ใช้กดเอง และตอนที่เราสั่งผ่าน API
@@ -670,6 +711,9 @@
     playerReady = false;
     loadedVideoId = null;
     blockedTicks = 0;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retry = { videoId: null, count: 0 };
     const mount = $("ytMount");
     if (mount) mount.remove();
     if ($("unblockBtn")) $("unblockBtn").hidden = true;
@@ -790,6 +834,9 @@
 
     applyVolume(effectiveVolume());
     const target = targetPosition();
+
+    // กำลังรอลองโหลดคลิปที่ error ใหม่ อย่าเพิ่งสั่ง play/seek ซ้ำ ไม่งั้นจะเข้าเงื่อนไข "โดนบล็อกเสียง"
+    if (retryTimer && retry.videoId === track.videoId) return;
 
     if (loadedVideoId !== track.videoId) {
       loadedVideoId = track.videoId;

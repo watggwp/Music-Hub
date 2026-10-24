@@ -622,6 +622,15 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         await broadcast(room)
         return
 
+    if kind == "playError":
+        # เก็บไว้ไล่สาเหตุ error 150 ที่เป็น ๆ หาย ๆ — คลิปเดิมซ้ำ ๆ = ปัญหาที่คลิป
+        # เกิดเป็นช่วงกับทุกคลิป = YouTube จำกัดการเล่นจาก IP ของเรา
+        log.warning("playError ห้อง %s เครื่อง %s (%s) คลิป %s code=%s ครั้งที่ %s ผล=%s",
+                    room.code, client_id, room.names.get(client_id, "?"),
+                    str(message.get("videoId"))[:20], message.get("code"),
+                    message.get("attempt"), str(message.get("outcome"))[:12])
+        return
+
     if kind == "announce":
         await handle_announce(room, client_id, message, socket)
         return
