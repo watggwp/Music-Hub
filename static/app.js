@@ -424,6 +424,7 @@
     const lower = text.toLowerCase();
     if (lower.indexOf("http://") === 0 || lower.indexOf("https://") === 0) return true;
     if (lower.includes("youtube.com") || lower.includes("youtu.be")) return true;
+    if (lower.includes("spotify.com")) return true;
     if (lower.includes("list=")) return true;
     // อาจเป็น videoId ล้วน ๆ 11 ตัว
     return text.length === 11 && [...text].every((ch) => ID_CHARS.includes(ch));
@@ -1302,6 +1303,8 @@
     if (!commit) { render(); return; }
     // slot คือ "แทรกก่อนแถวที่ slot" ต้องหักหนึ่งถ้าย้ายลงข้างล่าง เพราะตัวเองถูกดึงออกก่อน
     let target = slot > from ? slot - 1 : slot;
+    // แตะ ≡ เฉย ๆ ไม่ได้ลาก ต้องไม่ส่งอะไร — ต้องเช็คก่อนบีบค่า ไม่งั้นแตะเพลงที่กำลังเล่นจะกลายเป็นข้ามเพลง
+    if (target === from) { render(); return; }
     target = Math.max(1, target);   // ไม่ให้แทรกทับเพลงที่กำลังเล่น (ใช้ปุ่ม ▶ แทน)
     if (target === from) { render(); return; }
     send({ type: "move", id: id, to: target });

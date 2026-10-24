@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -18,6 +19,26 @@ from .youtube import (fetch_spotify_tracks, find_auto_dj_track,
                       probe_many, probe_video, search_videos, watch_title)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+log = logging.getLogger("uvicorn.error")   # ใช้ logger ของ uvicorn จะได้ขึ้นจอรูปแบบเดียวกัน
+
+ROOM_IDLE_TTL = 600         # วินาที — ห้องที่ไม่มีใครอยู่นานเกินนี้ลบทิ้ง แม้ยังมีเพลงค้างในคิว
+                            # เผื่อไว้ให้เครื่องที่เน็ตหลุด/รีเฟรชหน้า กลับเข้ามาเจอคิวเดิม
+
+# อ้างอิง task เบื้องหลังไว้ ไม่งั้น garbage collector อาจเก็บทิ้งกลางทาง
+_background: set[asyncio.Task] = set()
+
+
+def spawn(coro: Any) -> None:
+    """รันงานเบื้องหลัง และเขียน log ถ้าล้ม แทนที่จะเงียบหายไป"""
+    task = asyncio.create_task(coro)
+    _background.add(task)
+
+    def done(t: asyncio.Task) -> None:
+        _background.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            log.warning("งานเบื้องหลังล้ม", exc_info=t.exception())
+
+    task.add_done_callback(done)
 
 def _quiet_connection_reset(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
     """กลืน ConnectionResetError ที่ asyncio บน Windows พ่นออกมาเป็น traceback
@@ -68,9 +89,18 @@ def new_room_code() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(5))
 
 
+def prune_idle_rooms() -> None:
+    """ลบห้องที่ร้างนานเกิน ROOM_IDLE_TTL — เรียกขณะถือ rooms_lock อยู่"""
+    now = time.monotonic()
+    for code, room in list(rooms.items()):
+        if not room.clients and room.idle_since is not None and now - room.idle_since > ROOM_IDLE_TTL:
+            rooms.pop(code, None)
+
+
 async def get_room(code: str) -> Room:
     code = code.upper()
     async with rooms_lock:
+        prune_idle_rooms()
         room = rooms.get(code)
         if room is None:
             room = Room(code)
@@ -220,7 +250,7 @@ async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
     _announce_at[client_id] = now
     _announce_last = now
     await push_announcement(targets, ann)
-    asyncio.create_task(expire_announcement(targets, ann["id"], duration))
+    spawn(expire_announcement(targets, ann["id"], duration))
     await socket.send_json(
         {"type": "notice",
          "message": f"ส่งประกาศไป {len(targets)} ห้องแล้ว" if scope == "all" else "ส่งประกาศในห้องนี้แล้ว"}
@@ -256,6 +286,7 @@ async def api_new_room() -> JSONResponse:
 async def api_rooms() -> JSONResponse:
     items = []
     async with rooms_lock:
+        prune_idle_rooms()
         room_list = list(rooms.values())
     for room in room_list:
         async with room.lock:
@@ -297,6 +328,7 @@ async def websocket_endpoint(socket: WebSocket, code: str) -> None:
     async with room.lock:
         room.clients[client_id] = socket
         room.names[client_id] = "ผู้ฟัง"
+        room.idle_since = None
         if room.host_id is None or room.host_id not in room.clients:
             room.host_id = client_id
 
@@ -310,19 +342,24 @@ async def websocket_endpoint(socket: WebSocket, code: str) -> None:
     except WebSocketDisconnect:
         pass
     except Exception:
-        pass
+        # ไม่ใช่การหลุดปกติ อาจเป็นบั๊ก — เขียน log ไว้ ไม่งั้นจะเห็นแค่ "หลุดการเชื่อมต่อ"
+        log.warning("ปิดการเชื่อมต่อ %s ห้อง %s เพราะเกิดข้อผิดพลาด", client_id, room.code,
+                    exc_info=True)
     finally:
         async with room.lock:
             room.clients.pop(client_id, None)
             room.names.pop(client_id, None)
             if room.host_id == client_id:
                 room.host_id = next(iter(room.clients), None)
+            if not room.clients:
+                room.idle_since = time.monotonic()
         if room.clients:
             await broadcast(room)
         else:
             async with rooms_lock:
                 # ห้องว่างแล้ว แต่เก็บคิวไว้ให้กลับเข้ามาต่อได้ ถ้าไม่มีเพลงก็ลบทิ้ง
-                if not room.queue:
+                # เช็คซ้ำหลังได้ lock — ระหว่างรออาจมีคนเพิ่งเข้าห้องนี้มา ถ้าลบตอนนั้นห้องจะแตกเป็นสองห้อง
+                if not room.clients and not room.queue and rooms.get(room.code) is room:
                     rooms.pop(room.code, None)
 
 
@@ -338,11 +375,16 @@ def make_track(video_id: str, title: str, added_by: str) -> dict[str, Any]:
 
 async def maybe_trigger_auto_dj(room: Room) -> None:
     """เมื่อ Auto DJ เปิดอยู่ และคิวเหลือ <= 1 เพลง จะหาเพลงถัดไปมาต่อคิวให้อัตโนมัติ"""
-    if not room.auto_dj:
+    if not room.auto_dj or len(room.queue) > 1 or room.auto_dj_busy:
         return
-    if len(room.queue) > 1:
-        return
+    room.auto_dj_busy = True
+    try:
+        await _auto_dj_once(room)
+    finally:
+        room.auto_dj_busy = False
 
+
+async def _auto_dj_once(room: Room) -> None:
     seed_vid = ""
     seed_title = ""
     if room.queue:
@@ -359,10 +401,14 @@ async def maybe_trigger_auto_dj(room: Room) -> None:
         t.get("videoId") for t in room.history if t.get("videoId")
     }
     next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids)
-    if next_track:
-        async with room.lock:
-            if len(room.queue) <= 1:
-                room.add(make_track(next_track["videoId"], next_track["title"], "Auto DJ"))
+    if not next_track:
+        return
+    async with room.lock:
+        # ระหว่างค้นหา อาจมีคนเพิ่มเพลงหรือปิด Auto DJ ไปแล้ว
+        added = room.auto_dj and len(room.queue) <= 1
+        if added:
+            room.add(make_track(next_track["videoId"], next_track["title"], "Auto DJ"))
+    if added:
         await broadcast(room)
         await notify(room, f"Auto DJ เล่นต่อ: “{next_track['title']}”")
 
@@ -542,13 +588,14 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             if not track or track["videoId"] != video_id:
                 return
             title = track["title"]
-            room.drop_current()
+            room.drop_current("error" if kind == "trackError" else "ended")
         await broadcast(room)
         if kind == "trackError":
             await notify(room, f"เล่น “{title}” ไม่ได้ (เจ้าของคลิปปิดการฝังหรือถูกจำกัด) — เอาออกจากคิวแล้ว")
-            await offer_alternatives(room, title, video_id)
+            # หาเวอร์ชันอื่นใช้เวลาหลายวินาที อย่าให้ขวางข้อความถัดไปจากเครื่องลำโพง
+            spawn(offer_alternatives(room, title, video_id))
         if room.auto_dj and len(room.queue) <= 1:
-            asyncio.create_task(maybe_trigger_auto_dj(room))
+            spawn(maybe_trigger_auto_dj(room))
         return
 
     if kind == "setOpenControl":
@@ -575,7 +622,9 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
         return
 
     if kind == "add":
-        await handle_add(room, client_id, message, socket)
+        # นำเข้า playlist ใช้เวลาเป็นนาที ถ้ารอในลูปรับข้อความ เครื่องนี้จะส่งอะไรไม่ได้เลย
+        # ถ้าเป็นเครื่องลำโพง ข้อความ "ended" จะค้างจนเพลงถัดไปไม่ขึ้น จึงต้องแยกไปทำเบื้องหลัง
+        spawn(handle_add(room, client_id, message, socket))
         return
 
     async with room.lock:
@@ -583,7 +632,7 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             if room.queue:
                 room.set_position(room.position(), playing=True)
             elif room.auto_dj and room.history:
-                asyncio.create_task(maybe_trigger_auto_dj(room))
+                spawn(maybe_trigger_auto_dj(room))
         elif kind == "pause":
             room.set_position(room.position(), playing=False)
         elif kind == "seek":
@@ -592,7 +641,7 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             except (TypeError, ValueError):
                 return
         elif kind == "next":
-            room.drop_current()
+            room.drop_current("skip")
         elif kind == "move":
             room.move(str(message.get("id") or ""), message.get("to"))
         elif kind == "remove":
@@ -610,7 +659,7 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
 
     await broadcast(room)
     if kind in {"next", "remove", "setAutoDj"} and room.auto_dj and len(room.queue) <= 1:
-        asyncio.create_task(maybe_trigger_auto_dj(room))
+        spawn(maybe_trigger_auto_dj(room))
 
     if kind == "clearQueue":
         who = room.names.get(client_id, "ผู้ฟัง")

@@ -21,6 +21,8 @@ class Room:
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
         self.auto_dj = False               # True = ดึงเพลงต่ออัตโนมัติเมื่อคิวหมด
+        self.auto_dj_busy = False          # กำลังหาเพลงอยู่ กันสั่งซ้อนจนได้เพลงเดียวกันสองรอบ
+        self.idle_since: float | None = time.monotonic()  # เวลาที่ห้องเริ่มว่าง (None = มีคนอยู่)
         self.dj_stats: dict[str, dict[str, Any]] = {} # name -> {"songs": count, "duration": seconds}
         self.total_played = 0
         self.volume = 20                  # ระดับเสียงของลำโพง (เครื่องโฮสต์) ทุกคนปรับได้
@@ -90,19 +92,29 @@ class Room:
         if was_empty:
             self.set_position(0.0, playing=True)
 
-    def drop_current(self) -> None:
-        """เล่นจบ / กดข้าม / เล่นไม่ได้ -> เอาเพลงหัวแถวออกแล้วเริ่มเพลงถัดไป"""
+    def drop_current(self, reason: str = "ended") -> None:
+        """เล่นจบ / กดข้าม / เล่นไม่ได้ -> เอาเพลงหัวแถวออกแล้วเริ่มเพลงถัดไป
+
+        reason "ended" = เล่นจบเอง ทำตามโหมดวนซ้ำ
+        reason "skip"  = กดข้าม โหมดวนเพลงเดียวต้องไม่เริ่มเพลงเดิมซ้ำ ไม่งั้นปุ่มข้ามจะใช้ไม่ได้
+        reason "error" = เล่นไม่ได้ เอาออกจากคิวเสมอ ไม่งั้นโหมดวนซ้ำจะพาเพลงเสียวนกลับมาไม่จบ
+        """
         if not self.queue:
             self.set_position(0.0, playing=False)
             return
 
-        current_track = self.queue[0]
-        self._add_history(current_track)
+        mode = self.repeat_mode
+        if reason == "error" or (reason == "skip" and mode == "one"):
+            mode = "off"
 
-        if self.repeat_mode == "one":
+        current_track = self.queue[0]
+        if reason != "error":
+            self._add_history(current_track)   # เพลงที่เล่นไม่ได้ ไม่นับเป็นประวัติ
+
+        if mode == "one":
             self.set_position(0.0, playing=True)
             return
-        elif self.repeat_mode == "all":
+        elif mode == "all":
             finished = self.queue.pop(0)
             self.queue.append(finished)
             self.set_position(0.0, playing=True)

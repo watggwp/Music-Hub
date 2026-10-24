@@ -27,7 +27,10 @@ SEARCH_CACHE_MAX = 60
 
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _PLAYLIST_ID = re.compile(r"^(?:PL|RD|OLAK|UU|LL|FL|TL|VL|CL)[A-Za-z0-9_-]{8,}$")
-_SPOTIFY_PATTERN = re.compile(r"open\.spotify\.com/(track|playlist|album)/([A-Za-z0-9]+)")
+# ลิงก์ที่แชร์จากแอปในไทยมักมี /intl-th/ คั่นอยู่
+_SPOTIFY_PATTERN = re.compile(
+    r"open\.spotify\.com/(?:intl-[A-Za-z-]+/)?(track|playlist|album)/([A-Za-z0-9]+)"
+)
 _VIDEO_PATTERNS = [
     re.compile(r"(?:youtube\.com|youtube-nocookie\.com)/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})"),
     re.compile(r"youtu\.be/([A-Za-z0-9_-]{11})"),
@@ -56,11 +59,12 @@ def parse_target(raw: str) -> dict | None:
     if found_list and _PLAYLIST_ID.match(found_list.group(1)):
         return {"kind": "playlist", "id": found_list.group(1)}
 
-    if _PLAYLIST_ID.match(text):
-        return {"kind": "playlist", "id": text}
-
+    # ต้องเช็ค videoId ก่อน — id 11 ตัวที่บังเอิญขึ้นต้นด้วย PL/RD/UU ฯลฯ จะได้ไม่ถูกเหมาเป็น playlist
     if _VIDEO_ID.match(text):
         return {"kind": "video", "id": text}
+
+    if _PLAYLIST_ID.match(text):
+        return {"kind": "playlist", "id": text}
 
     for pattern in _VIDEO_PATTERNS:
         m = pattern.search(text)
@@ -194,7 +198,7 @@ def _search_sync(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 async def search_videos(query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
-    key = query.strip().lower()
+    key = f"{limit}:{query.strip().lower()}"   # แยกตาม limit ไม่งั้นผลชุดเล็กจะไปค้างแทนชุดใหญ่
     cached = _search_cache.get(key)
     if cached and time.monotonic() - cached[0] < SEARCH_TTL:
         return cached[1]
