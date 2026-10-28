@@ -80,7 +80,7 @@
       </span>
       <div class="announce-body">
         <span class="announce-from">ประกาศจาก <strong id="announceFrom">—</strong></span>
-        <p id="announceText"></p>
+        <p id="announceText">กำลังเล่นเสียงประกาศ</p>
       </div>
       <button type="button" id="announceStopBtn" class="ghost small" title="หยุดประกาศนี้ทุกห้อง">หยุด</button>
     </div>
@@ -282,15 +282,10 @@
       <div class="stats-head">
         <div class="stats-title-group">
           <strong>ประกาศเสียงตามสาย</strong>
-          <p class="muted tiny">ข้อความจะขึ้นทุกเครื่อง และอ่านออกเสียงที่ลำโพงของแต่ละห้อง</p>
+          <p class="muted tiny">อัดเสียงหรือเลือกไฟล์เสียง แล้วลำโพงของแต่ละห้องจะเล่นให้พร้อมกัน</p>
         </div>
         <button type="button" id="closeAnnounceBtn" class="ghost small">✕</button>
       </div>
-
-      <label for="announceInput">ข้อความประกาศ</label>
-      <textarea id="announceInput" maxlength="200" rows="3"
-        placeholder="เช่น เชิญทุกท่านที่ห้องประชุมใหญ่ ชั้น 3 ในอีก 10 นาที"></textarea>
-      <p class="hint"><span id="announceCount">0 / 200</span></p>
 
       <div class="announce-rec">
         <div class="announce-rec-row">
@@ -303,7 +298,7 @@
           <audio id="recAudio" controls preload="auto"></audio>
           <button type="button" id="recDiscardBtn" class="ghost small">ลบคลิป</button>
         </div>
-        <p class="hint" id="recHint">อัดเสียงหรือเลือกไฟล์ mp3 / m4a / wav ได้ยาวไม่เกิน 60 วินาที ถ้ามีคลิป ลำโพงจะเล่นคลิปแทนเสียงอ่าน ส่วนข้อความจะขึ้นเป็นแบนเนอร์ (พิมพ์หรือไม่พิมพ์ก็ได้)</p>
+        <p class="hint" id="recHint">อัดเสียงหรือเลือกไฟล์ mp3 / m4a / wav ได้ยาวไม่เกิน 60 วินาที ฟังทวนได้ก่อนส่ง</p>
       </div>
 
       <div class="announce-opts">
@@ -315,33 +310,26 @@
       </div>
 
       <div class="announce-opts">
-        <label for="announceRate">ความเร็วเสียงอ่าน</label>
-        <select id="announceRate">
-          <option value="0.6">ช้ามาก</option>
-          <option value="0.7">ค่อนข้างช้า</option>
-          <option value="0.8" selected>ช้า (แนะนำ)</option>
-          <option value="0.9">ปกติ</option>
-          <option value="1">เร็ว</option>
+        <label for="announceRepeat">เล่นวนกี่รอบ</label>
+        <select id="announceRepeat">
+          <option value="1" selected>1 รอบ</option>
+          <option value="2">2 รอบ</option>
+          <option value="3">3 รอบ</option>
         </select>
       </div>
 
       <label class="toggle">
-        <input id="announceSpeak" type="checkbox" checked />
-        <span>อ่านออกเสียงที่ลำโพง <small class="tiny" id="announceVoiceHint"></small></span>
-      </label>
-      <button type="button" id="testVoiceBtn" class="ghost small">ลองเสียงที่เครื่องนี้</button>
-      <label class="toggle">
         <input id="announceChime" type="checkbox" checked />
-        <span>เล่นเสียงเตือนก่อนอ่าน <small class="tiny">(ตุ๊งแต๊งสองจังหวะ)</small></span>
+        <span>เล่นเสียงเตือนก่อนประกาศ <small class="tiny">(ตุ๊งแต๊งสองจังหวะ)</small></span>
       </label>
 
-      <p class="hint">เพลงจะถูกหรี่ลงเองระหว่างประกาศ แล้วคืนระดับเดิมเมื่ออ่านจบ · ประกาศได้ 1 ครั้งทุก 10 วินาที</p>
+      <p class="hint">เพลงจะถูกหรี่ลงเองระหว่างประกาศ แล้วคืนระดับเดิมเมื่อเล่นจบ · ประกาศได้ 1 ครั้งทุก 10 วินาที</p>
       <button type="button" id="sendAnnounceBtn" class="primary">ส่งประกาศ</button>
     </div>
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=43"></script>
+  <script src="/static/app.js?v=44"></script>
 </body>
 
 </html>

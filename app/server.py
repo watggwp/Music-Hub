@@ -68,20 +68,18 @@ CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
 # ---------- ระบบประกาศ ----------
 # เปิดให้ทุกเครื่องในวง LAN ประกาศได้ ไม่มีรหัสกั้น ตามแนวเดียวกับส่วนอื่นของแอป
 # ที่เหลือคือกันความผิดพลาดโดยไม่ตั้งใจ — ยิงรัว ประกาศทับกัน และข้อความยาวเกินไป
-ANNOUNCE_MAX_CHARS = 200        # ยาวกว่านี้เพลงจะโดนหรี่นานเกินไป
 ANNOUNCE_COOLDOWN = 10.0        # วินาที — กันคนเดิมยิงรัว
-ANNOUNCE_GAP = 3.0              # วินาที — กันประกาศสองอันทับกันจนอ่านไม่รู้เรื่อง
+ANNOUNCE_GAP = 3.0              # วินาที — กันประกาศสองอันทับกันจนฟังไม่รู้เรื่อง
 ANNOUNCE_DUCK = 12              # ระดับเสียงเพลงระหว่างประกาศ (0-100)
-ANNOUNCE_RATE_DEFAULT = 0.8     # ความเร็วเสียงอ่าน 1.0 = ความเร็วปกติของเอนจิน
-ANNOUNCE_RATE_MIN = 0.5
-ANNOUNCE_RATE_MAX = 1.5
+ANNOUNCE_REPEAT_MAX = 3         # เล่นคลิปวนได้สูงสุดกี่รอบ
+ANNOUNCE_REPEAT_GAP_MS = 700    # เว้นระหว่างรอบ ให้ฟังออกว่าขึ้นรอบใหม่
 
 _announce_at: dict[str, float] = {}   # client_id -> เวลาที่ประกาศล่าสุด
 _announce_last = 0.0                  # เวลาที่มีประกาศล่าสุดของทั้งระบบ
 
-# ---------- ประกาศด้วยเสียงอัดเอง ----------
-# ผู้ประกาศอัดเสียงในเบราว์เซอร์ แล้วอัปโหลดคลิปมาพักไว้ในหน่วยความจำก่อนส่งประกาศ
-# เครื่องลำโพงดึงคลิปไปเล่นแทนเสียงอ่าน คลิปอยู่ชั่วคราวเท่านั้น ไม่เขียนลงดิสก์
+# ---------- คลิปเสียงประกาศ ----------
+# ประกาศเป็นเสียงล้วน — ผู้ประกาศอัดเสียงในเบราว์เซอร์หรือเลือกไฟล์จากเครื่อง
+# แล้วอัปโหลดคลิปมาพักไว้ในหน่วยความจำก่อนส่งประกาศ ลำโพงดึงคลิปไปเล่น ไม่เขียนลงดิสก์
 # (บน Render ดิสก์หายทุกครั้งที่ deploy อยู่แล้ว และคลิปไม่กี่สิบวินาทีไม่มีค่าควรเก็บ)
 CLIP_MAX_MS = 60_000            # ความยาวคลิปสูงสุด — นานกว่านี้เพลงโดนหรี่นานเกินไป
 CLIP_MAX_BYTES = 12_000_000     # wav 60 วิ สเตอริโอ ~ 10.5 MB — ไฟล์ที่เลือกจากคอมมักไม่ได้บีบอัด
@@ -163,28 +161,6 @@ async def offer_alternatives(room: Room, title: str, video_id: str,
 
 
 # ---------------- ประกาศ ----------------
-def clamp_rate(value: Any) -> float:
-    try:
-        return max(ANNOUNCE_RATE_MIN, min(ANNOUNCE_RATE_MAX, float(value)))
-    except (TypeError, ValueError):
-        return ANNOUNCE_RATE_DEFAULT
-
-
-def announce_ms(text: str, speak: bool, rate: float = ANNOUNCE_RATE_DEFAULT) -> int:
-    """ประเมินว่าประกาศนี้จะกินเวลากี่มิลลิวินาที
-
-    เสียงอ่านไทยที่ความเร็ว 1.0 ได้ราว 4.5 ตัวอักษรต่อวินาที ช้าลงครึ่งหนึ่งก็ใช้เวลาเป็นสองเท่า
-    จึงต้องหารด้วย rate ไม่งั้นแบนเนอร์จะถูกล้างทิ้งตั้งแต่ยังอ่านไม่จบ
-    บวกหัวท้ายอีก 3 วินาทีเผื่อเสียงเตือนและจังหวะเริ่มพูด
-
-    ตัวเลขนี้ใช้ตั้งเวลาล้างประกาศเท่านั้น เครื่องโฮสต์คืนเสียงเพลงเองทันทีที่พูดจบอยู่แล้ว
-    """
-    if not speak:
-        return int(min(30_000, max(5_000, len(text) * 120 + 3_000)))
-    seconds = len(text) / (4.5 * max(rate, ANNOUNCE_RATE_MIN))
-    return int(min(150_000, max(5_000, seconds * 1000 + 3_000)))
-
-
 def prune_clips() -> None:
     now = time.monotonic()
     for clip_id, clip in list(_clips.items()):
@@ -197,6 +173,13 @@ def clamp_clip_ms(value: Any) -> int:
         return int(max(1_000, min(CLIP_MAX_MS, float(value))))
     except (TypeError, ValueError):
         return CLIP_MAX_MS
+
+
+def clamp_repeat(value: Any) -> int:
+    try:
+        return int(max(1, min(ANNOUNCE_REPEAT_MAX, int(value))))
+    except (TypeError, ValueError):
+        return 1
 
 
 async def announce_targets(room: Room, scope: str) -> list[Room]:
@@ -234,16 +217,14 @@ async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
                           socket: WebSocket) -> None:
     global _announce_last
 
-    text = " ".join(str(message.get("text") or "").split())[:ANNOUNCE_MAX_CHARS]
     clip_id = str(message.get("clipId") or "")
-    if clip_id:
-        prune_clips()
-        if clip_id not in _clips:
-            await socket.send_json({"type": "error",
-                                    "message": "คลิปเสียงหมดอายุหรือหาไม่เจอ กรุณาอัดใหม่"})
-            return
-    if not text and not clip_id:
-        await socket.send_json({"type": "error", "message": "ยังไม่ได้พิมพ์ข้อความหรืออัดเสียงประกาศ"})
+    if not clip_id:
+        await socket.send_json({"type": "error", "message": "ยังไม่ได้อัดเสียงหรือเลือกไฟล์เสียงประกาศ"})
+        return
+    prune_clips()
+    if clip_id not in _clips:
+        await socket.send_json({"type": "error",
+                                "message": "คลิปเสียงหมดอายุหรือหาไม่เจอ กรุณาอัดใหม่"})
         return
 
     now = time.monotonic()
@@ -265,24 +246,20 @@ async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
         await socket.send_json({"type": "error", "message": "ยังไม่มีห้องที่เปิดใช้งานอยู่"})
         return
 
-    speak = message.get("speak") is not False
-    rate = clamp_rate(message.get("rate", ANNOUNCE_RATE_DEFAULT))
-    if clip_id:
-        # คลิปเสียงมาแทนเสียงอ่าน — เวลาล้างประกาศคิดจากความยาวคลิปที่ฝั่งอัดวัดไว้
-        # (ไฟล์ webm จาก MediaRecorder ไม่มี duration ในหัวไฟล์ เซิร์ฟเวอร์อ่านเองไม่ได้)
-        speak = False
-        duration = clamp_clip_ms(message.get("clipMs")) + 3_000
-    else:
-        duration = announce_ms(text, speak, rate)
+    # เวลาล้างประกาศคิดจากความยาวคลิปที่ฝั่งอัดวัดไว้ คูณจำนวนรอบ บวกช่วงเว้นระหว่างรอบและหัวท้าย
+    # (ไฟล์ webm จาก MediaRecorder ไม่มี duration ในหัวไฟล์ เซิร์ฟเวอร์อ่านเองไม่ได้)
+    clip_ms = clamp_clip_ms(message.get("clipMs"))
+    repeat = clamp_repeat(message.get("repeat", 1))
+    duration = clip_ms * repeat + ANNOUNCE_REPEAT_GAP_MS * (repeat - 1) + 3_000
     ann = {
         "id": secrets.token_hex(6),
-        "text": text or "ประกาศด้วยเสียง",
-        "audio": f"/api/announce-audio/{clip_id}" if clip_id else None,
+        "audio": f"/api/announce-audio/{clip_id}",
+        "clipMs": clip_ms,
+        "repeat": repeat,
+        "repeatGapMs": ANNOUNCE_REPEAT_GAP_MS,
         "by": room.names.get(client_id, "ผู้ประกาศ"),
         "fromRoom": room.code,
         "scope": scope,
-        "speak": speak,
-        "rate": rate,
         "chime": message.get("chime") is not False,
         "duck": ANNOUNCE_DUCK,
         "startedAt": now_ms(),
