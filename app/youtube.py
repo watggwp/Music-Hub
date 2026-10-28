@@ -33,7 +33,7 @@ SEARCH_TTL = 300              # เก็บผลค้นหาไว้ใช
 SEARCH_CACHE_MAX = 60
 PLAYLIST_TTL = 1800           # เก็บรายการเพลงใน playlist ไว้ใช้ซ้ำกี่วินาที (Auto DJ อ่าน playlist เดิมบ่อย)
 PLAYLIST_CACHE_MAX = 120
-AUTO_DJ_PLAYLISTS = 6         # Auto DJ อ่านเพลย์ลิสต์สาธารณะกี่ชุดต่อการหาเพลงหนึ่งครั้ง
+AUTO_DJ_PLAYLISTS = 10        # Auto DJ อ่านเพลย์ลิสต์สาธารณะกี่ชุดต่อการหาเพลงหนึ่งครั้ง (อ่านพร้อมกัน มีแคช)
 
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _PLAYLIST_ID = re.compile(r"^(?:PL|RD|OLAK|UU|LL|FL|TL|VL|CL)[A-Za-z0-9_-]{8,}$")
@@ -547,6 +547,7 @@ _NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind th
                        "รวมเพลง", "รวมฮิต", "รวมบทเพลง", "playlist", "longplay", "long play", "nonstop", "non-stop",
                        "non stop", "ต่อเนื่อง", "ฟังยาว", "ชุดที่", "full album", "อัลบั้มเต็ม", "medley", "เมดเล่ย์",
                        "ฟังเพลิน", "ฟังสบาย", "เพลงเพราะๆ", "เพลงเพราะ ๆ", "best of", "the best", "very best",
+                       "ฟังเพลงฮิต", "เพลงฮิต", "ฟังเพลง", "#เพลง",
                        "greatest hits", "ชุดพิเศษ", "ชุดเต็ม", "hits collection", "all songs", "ทุกเพลง",
                        # บันทึกการแสดงสด เสียงไม่เหมาะเปิดในออฟฟิศ และมักยาวหลายเพลง
                        "live at", "live in", "concert", "คอนเสิร์ต", "แสดงสด"}
@@ -633,15 +634,36 @@ def is_same_song_as_recent(cand_title: str, cand_author: str, avoid_titles: list
     return False
 
 
-def is_repeat_of(title: str, author: str, recent_titles: list[str], seed_author: str = "") -> bool:
-    """เพลงนี้ซ้ำกับเพลงที่เพิ่งเล่น/อยู่ในคิวไหม (ทั้งชื่อตรงกันทั้งชุด และคลิปอัปซ้ำที่ตรงแค่ชื่อเพลง)
+def artist_family(seed_title: str, seed_author: str, pool_titles: list[str],
+                  artist_parts: set[str]) -> set[str]:
+    """ชื่อทุกแบบของศิลปินของเพลง seed — เชื่อมชื่อไทยกับชื่ออังกฤษผ่านคลิปที่เขียนทั้งสองแบบ
+    ("ถูกทุกข้อ - ลาบานูน(labanoon)" ทำให้รู้ว่า ลาบานูน = labanoon)"""
+    family = {x for x in _title_parts(clean_title(seed_title) or seed_title) if _part_match(x, artist_parts)}
+    a = _norm_author(seed_author)
+    if len(a) >= 3 and _part_match(a, artist_parts):
+        family.add(a)
+    if not family:
+        return family
+    # ขยายผ่านชื่อที่ปรากฏคู่กันในคลิปเดียว (วนจนไม่โตแล้ว)
+    groups = [{x for x in _title_parts(t) if _part_match(x, artist_parts)} for t in pool_titles]
+    groups = [g for g in groups if len(g) >= 2]
+    grown = True
+    while grown:
+        grown = False
+        for g in groups:
+            if any(_part_match(x, family) for x in g) and not g <= family:
+                family |= g
+                grown = True
+    return family
+
+
+def is_repeat_of(title: str, recent_titles: list[str]) -> bool:
+    """เพลงนี้ชื่อตรงกับเพลงที่เพิ่งเล่น/อยู่ในคิวไหม
 
     ให้ server เรียกซ้ำก่อนใส่คิวจริง เพราะระหว่างที่ Auto DJ ค้นหาอยู่ คิวและประวัติอาจเปลี่ยนไปแล้ว
+    เช็คแค่ชื่อตรงกันทั้งชุด — การแยกคลิปอัปซ้ำที่ตรงแค่ชื่อเพลงต้องมีชุดคลิปเทียบ ทำในตัวค้นหาแล้ว
     """
-    recent = [t for t in recent_titles if t]
-    if any(is_too_similar(title, t) for t in recent):
-        return True
-    return is_same_song_as_recent(title, author, recent, artist_parts_of(recent, seed_author))
+    return any(is_too_similar(title, t) for t in recent_titles if t)
 
 
 async def _cooccurrence_candidates(query: str, seed_video_id: str) -> dict[str, int]:
@@ -746,7 +768,8 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
             # หัวแถวของ Mix มักเป็นเพลงเดิมเวอร์ชันอื่น จึงตรวจกว้างหน่อยกันหมดตัวเลือก
             probes = await probe_many(candidates[:20])
             for p in probes:
-                if p.get("ok") and usable(p.get("title", ""), author=p.get("author", "")):
+                # ตรวจไม่สำเร็จ (429) = ไม่รู้ชื่อจริง กรองซ้ำไม่ได้ ห้ามเอา
+                if p.get("ok") and not p.get("unverified") and usable(p.get("title", ""), author=p.get("author", "")):
                     return pick(p)
 
     # ---- เพลย์ลิสต์สาธารณะ: หาเพลงที่คนจัดไว้ร่วมกับเพลงนี้ / ของศิลปินนี้ ----
@@ -767,8 +790,14 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
     # ชื่อคลิปที่มีชื่อศิลปินอยู่แล้ว ให้ยึดชื่อนั้น — ชื่อช่องเชื่อไม่ได้เมื่อเป็นคลิปอัปซ้ำหรือช่องค่าย
     title_has_artist = len(_title_parts(clean_title(current_title) or current_title)) >= 2
 
+    family: set[str] = set()   # ชื่อทุกแบบของศิลปินของ seed (ไทย/อังกฤษ/ชื่อช่อง) — เติมหลังเห็นชุดคลิป
+
     def same_artist(p: dict) -> bool:
         if shares_artist_part(p.get("title", ""), current_title):
+            return True
+        parts = {x for x in _title_parts(p.get("title", "")) if len(x) >= 3}
+        a = _norm_author(p.get("author", ""))
+        if family and (any(_part_match(x, family) for x in parts) or (len(a) >= 3 and _part_match(a, family))):
             return True
         if mode == "artist":
             return not title_has_artist and same_author(p.get("author", ""), seed_author)
@@ -779,9 +808,17 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
 
     for start in range(0, len(order), 20):
         probes = await probe_many(order[start:start + 20])
+        # ชื่อที่โผล่ในหลายคลิปของชุดนี้คือชื่อศิลปิน (ชุดมาจากเพลย์ลิสต์ของศิลปิน) — ใช้แยกชื่อเพลงออกจากชื่อศิลปิน
+        # ตอนที่ประวัติยังสั้นจนนับความถี่ไม่ได้ และชื่อช่องเป็นอังกฤษแต่ชื่อคลิปเป็นไทย
+        pool_titles = [p.get("title", "") for p in probes if p.get("ok") and not p.get("unverified")]
+        pool_artists = artist_parts_of(pool_titles) if len(pool_titles) >= 3 else set()
+        pool_artists = {x for x in pool_artists if sum(1 for t in pool_titles if _part_match(x, _title_parts(t))) >= 3}
+        artist_parts.update(pool_artists)
+        family |= artist_family(current_title, seed_author, pool_titles, artist_parts)
         ok = [p for p in probes
-              if p.get("ok") and usable(p.get("title", ""), trusted=counts.get(p["videoId"], 0) >= 2,
-                                        author=p.get("author", ""))]
+              if p.get("ok") and not p.get("unverified")   # ตรวจไม่สำเร็จ (429) = ไม่รู้ชื่อจริง กรองซ้ำไม่ได้
+              and usable(p.get("title", ""), trusted=counts.get(p["videoId"], 0) >= 2,
+                         author=p.get("author", ""))]
         if mode == "artist":
             # ศิลปินเดิม = ช่องเดียวกัน หรือชื่อคลิปมีชื่อศิลปินเดียวกับเพลงที่เพิ่งเล่น
             same = [p for p in ok if same_artist(p)]
@@ -797,11 +834,11 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
         other = [p for p in ok if p not in same]
         other_strong = [p for p in other if counts.get(p["videoId"], 0) >= 2]
         same_strong = [p for p in same if counts.get(p["videoId"], 0) >= 2]
-        for group in (other_strong, [] if force_other else same_strong, other, [] if force_other else same):
+        #   เมื่อต้องเลี่ยงศิลปินเดิม (force_other) ก็ยังไม่เอา "ศิลปินอื่นที่โผล่เพลย์ลิสต์เดียว" —
+        #   ของพวกนั้นในเพลย์ลิสต์ของศิลปินมักเป็นคลิปอัปเองคุณภาพต่ำ ยอมเป็นศิลปินเดิมดีกว่าได้ของมั่ว
+        groups = ((other_strong, same_strong, same) if force_other
+                  else (other_strong, same_strong, other, same))
+        for group in groups:
             if group:
                 return pick(group[0])
-        if force_other and same:
-            # ไม่มีศิลปินอื่นเลยในชุดนี้ ดูชุดถัดไปก่อน ถ้าหมดจริง ๆ ค่อยยอมศิลปินเดิม
-            if start + 20 >= len(order):
-                return pick(same[0])
     return None

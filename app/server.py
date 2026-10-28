@@ -478,8 +478,7 @@ async def _auto_dj_once(room: Room) -> None:
             # ตรวจซ้ำกับสถานะล่าสุดอีกรอบ — ตอนเริ่มค้นหา คิว/ประวัติอาจยังไม่มีเพลงที่เพิ่งถูกเพิ่มเข้ามา
             recent = [t["title"] for t in room.queue] + [t["title"] for t in room.history[:10]]
             ids = {t["videoId"] for t in room.queue} | {t.get("videoId") for t in room.history}
-            if next_track["videoId"] in ids or is_repeat_of(next_track["title"], next_track.get("author", ""),
-                                                             recent, ""):
+            if next_track["videoId"] in ids or is_repeat_of(next_track["title"], recent):
                 log.warning("Auto DJ ห้อง %s ได้เพลงซ้ำ %r ทิ้ง", room.code, next_track["title"])
                 added = False
             else:
