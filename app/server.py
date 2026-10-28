@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import youtube as youtube_mod
 from .room import Room
 from .youtube import (fetch_spotify_tracks, find_auto_dj_track,
                       find_playable_alternatives, parse_target, playlist_video_ids,
@@ -554,8 +555,11 @@ async def handle_add(room: Room, client_id: str, message: dict[str, Any],
     if target["kind"] == "playlist":
         video_ids = await playlist_video_ids(target["id"])
         if not video_ids:
+            reason = youtube_mod.last_playlist_error
             await socket.send_json(
-                {"type": "error", "message": "อ่าน playlist นี้ไม่ได้ (อาจเป็นส่วนตัวหรือว่างเปล่า)"}
+                {"type": "error",
+                 "message": "อ่าน playlist นี้ไม่ได้ (อาจเป็นส่วนตัวหรือว่างเปล่า)"
+                            + (f" — {reason}" if reason else "")}
             )
             return
         results = await probe_many(video_ids)

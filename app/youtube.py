@@ -9,12 +9,18 @@ from __future__ import annotations
 import asyncio
 import html as html_module
 import json
+import logging
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+log = logging.getLogger("uvicorn.error")
+
+# เหตุผลที่อ่าน playlist ล่าสุดไม่สำเร็จ — เอาไปบอกผู้ใช้และดูใน log ได้ว่า YouTube ตอบอะไรกลับมา
+last_playlist_error = ""
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126 Safari/537.36")
@@ -277,13 +283,33 @@ async def find_playable_alternatives(
 
 
 # ---------------- อ่าน playlist ----------------
+def _page_reason(final_url: str, html: str) -> str:
+    """สรุปสั้น ๆ ว่าหน้าที่ YouTube ส่งกลับมาคืออะไร เมื่อหาเพลงในนั้นไม่เจอ"""
+    host = urllib.parse.urlparse(final_url).netloc
+    lower = html[:200_000].lower()
+    if "consent.youtube.com" in host or "consent.google" in host:
+        return f"ถูกส่งไปหน้า consent ({host})"
+    if "/sorry/" in final_url or "unusual traffic" in lower or "captcha" in lower:
+        return "YouTube ขอยืนยันว่าไม่ใช่บอท"
+    if "confirm you" in lower and "not a bot" in lower:
+        return "YouTube ขอให้ล็อกอินเพื่อยืนยันว่าไม่ใช่บอท"
+    title = ""
+    start = lower.find("<title>")
+    if start >= 0:
+        end = lower.find("</title>", start)
+        title = html[start + 7:end][:60] if end > start else ""
+    return f"หน้าไม่มีรายการเพลง (host={host}, {len(html)} ตัวอักษร, title={title!r})"
+
+
 def _playlist_ids_sync(playlist_id: str) -> list[str]:
+    global last_playlist_error
     seed = playlist_id[2:] if playlist_id.startswith("RD") and len(playlist_id) > 2 and _VIDEO_ID.match(playlist_id[2:]) else ""
     urls = []
     if seed:
         urls.append(f"https://www.youtube.com/watch?v={seed}&list={urllib.parse.quote(playlist_id)}")
     urls.append(f"https://www.youtube.com/playlist?list={urllib.parse.quote(playlist_id)}")
 
+    reasons: list[str] = []
     for url in urls:
         try:
             request = urllib.request.Request(
@@ -292,6 +318,7 @@ def _playlist_ids_sync(playlist_id: str) -> list[str]:
             )
             with urllib.request.urlopen(request, timeout=12) as resp:
                 html = resp.read().decode("utf-8", "replace")
+                final_url = resp.geturl()
 
             found = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
             if not found:
@@ -303,10 +330,17 @@ def _playlist_ids_sync(playlist_id: str) -> list[str]:
 
             vids = list(dict.fromkeys(found))
             if vids:
+                last_playlist_error = ""
                 return vids[:PLAYLIST_LIMIT]
-        except Exception:
-            continue
+            reasons.append(_page_reason(final_url, html))
+        except urllib.error.HTTPError as e:
+            reasons.append(f"HTTP {e.code}")
+        except Exception as e:
+            reasons.append(f"{type(e).__name__}: {e}"[:80])
 
+    # ไม่กลืนเงียบ ๆ — Auto DJ พึ่ง Mix เป็นหลัก ถ้าอ่านไม่ได้ต้องเห็นใน log ว่าเพราะอะไร
+    last_playlist_error = " / ".join(reasons)
+    log.warning("อ่าน playlist %s ไม่ได้: %s", playlist_id, last_playlist_error)
     return []
 
 
