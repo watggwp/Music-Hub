@@ -539,6 +539,8 @@ def is_too_similar(title_a: str, title_b: str) -> bool:
 _NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind the scene", "reaction", "vlog", "podcast",
                        "tutorial", "how to", "review", "unboxing", "gameplay", "ep.", "episode",
                        "(skit)", "skit", "(intro)", "(outro)", "interlude",
+                       # คลิปซีรีส์/ละครที่ชื่อตอนบังเอิญตรงกับชื่อเพลง
+                       "ซีรีส์", "ซีรี่ส์", "series", "youku", "iqiyi", "wetv", "viu", "netflix", "ตอนจบ", "fin |", "ep ",
                        "รีวิว", "สอน", "ตอนที่", "ข่าว", "นิทาน", "การ์ตูน", "ละคร", "หนัง", "ตัวอย่าง", "เกม",
                        "พิพิธภัณฑ์", "ท่องเที่ยว", "เที่ยว", "ทำอาหาร", "สัมภาษณ์", "เบื้องหลัง", "ไลฟ์สด", "ถ่ายทอดสด",
                        # คลิปรวมเพลงยาว ๆ — Auto DJ ต้องการเพลงเดียว ไม่ใช่เพลย์ลิสต์ในคลิปเดียว
@@ -629,6 +631,17 @@ def is_same_song_as_recent(cand_title: str, cand_author: str, avoid_titles: list
             continue                      # ส่วนนี้คือชื่อศิลปิน ไม่ใช่ชื่อเพลง
         return True
     return False
+
+
+def is_repeat_of(title: str, author: str, recent_titles: list[str], seed_author: str = "") -> bool:
+    """เพลงนี้ซ้ำกับเพลงที่เพิ่งเล่น/อยู่ในคิวไหม (ทั้งชื่อตรงกันทั้งชุด และคลิปอัปซ้ำที่ตรงแค่ชื่อเพลง)
+
+    ให้ server เรียกซ้ำก่อนใส่คิวจริง เพราะระหว่างที่ Auto DJ ค้นหาอยู่ คิวและประวัติอาจเปลี่ยนไปแล้ว
+    """
+    recent = [t for t in recent_titles if t]
+    if any(is_too_similar(title, t) for t in recent):
+        return True
+    return is_same_song_as_recent(title, author, recent, artist_parts_of(recent, seed_author))
 
 
 async def _cooccurrence_candidates(query: str, seed_video_id: str) -> dict[str, int]:
@@ -723,7 +736,7 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
         return not is_same_song_as_recent(title, author, avoid, artist_parts)
 
     def pick(p: dict) -> dict:
-        return {"videoId": p["videoId"], "title": p.get("title", "")}
+        return {"videoId": p["videoId"], "title": p.get("title", ""), "author": p.get("author", "")}
 
     # ---- แนวเดียวกัน: YouTube Mix ก่อน (ใช้ได้เมื่อรันในวง LAN/บ้าน) ----
     if mode != "artist" and seed_video_id:

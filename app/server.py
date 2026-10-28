@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from . import youtube as youtube_mod
 from .room import Room
 from .youtube import (fetch_spotify_tracks, find_auto_dj_track,
-                      find_playable_alternatives, parse_target, playlist_video_ids,
+                      find_playable_alternatives, is_repeat_of, parse_target, playlist_video_ids,
                       probe_many, probe_video, search_videos, watch_title)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -475,10 +475,20 @@ async def _auto_dj_once(room: Room) -> None:
         # ระหว่างค้นหา อาจมีคนเพิ่มเพลงหรือปิด Auto DJ ไปแล้ว
         added = room.auto_dj and len(room.queue) <= 1
         if added:
-            room.add(make_track(next_track["videoId"], next_track["title"], "Auto DJ"))
+            # ตรวจซ้ำกับสถานะล่าสุดอีกรอบ — ตอนเริ่มค้นหา คิว/ประวัติอาจยังไม่มีเพลงที่เพิ่งถูกเพิ่มเข้ามา
+            recent = [t["title"] for t in room.queue] + [t["title"] for t in room.history[:10]]
+            ids = {t["videoId"] for t in room.queue} | {t.get("videoId") for t in room.history}
+            if next_track["videoId"] in ids or is_repeat_of(next_track["title"], next_track.get("author", ""),
+                                                             recent, ""):
+                log.warning("Auto DJ ห้อง %s ได้เพลงซ้ำ %r ทิ้ง", room.code, next_track["title"])
+                added = False
+            else:
+                room.add(make_track(next_track["videoId"], next_track["title"], "Auto DJ"))
     if added:
         await broadcast(room)
         await notify(room, f"Auto DJ เล่นต่อ: “{next_track['title']}”")
+    elif room.auto_dj and len(room.queue) <= 1:
+        await notify(room, "Auto DJ ได้เพลงที่เพิ่งเล่นไปแล้ว ข้ามรอบนี้ กดข้ามเพลงเพื่อลองใหม่")
 
 
 async def handle_add(room: Room, client_id: str, message: dict[str, Any],
