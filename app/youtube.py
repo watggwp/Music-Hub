@@ -593,6 +593,44 @@ def shares_artist_part(title_a: str, title_b: str) -> bool:
     return any(_part_match(x, pb) for x in pa)
 
 
+def artist_parts_of(titles: list[str], seed_author: str = "") -> set[str]:
+    """ส่วนของชื่อที่โผล่ในหลายคลิป = ชื่อศิลปิน/วง (ชื่อเพลงโผล่ครั้งเดียว) รวมชื่อช่องของเพลงล่าสุดด้วย"""
+    seen: dict[str, int] = {}
+    for t in titles:
+        for x in _title_parts(t):
+            seen[x] = seen.get(x, 0) + 1
+    parts = {x for x, n in seen.items() if n >= 2}
+    if seed_author:
+        a = _norm_author(seed_author)
+        if len(a) >= 3:
+            parts.add(a)
+    return parts
+
+
+def is_same_song_as_recent(cand_title: str, cand_author: str, avoid_titles: list[str],
+                           artist_parts: set[str]) -> bool:
+    """คลิปนี้คือเพลงที่เพิ่งเล่น/อยู่ในคิว ที่คนอื่นอัปซ้ำมาในชื่ออื่นไหม
+
+    is_too_similar จับได้เมื่อชื่อ 'ทั้งชุด' ตรงกัน แต่ "อะไรก็ผิด - (Official Audio) | MP Studio" กับ
+    "อะไรก็ผิด - ลาบานูน" ตรงกันแค่ส่วนเดียว ส่วนที่ตรงจะเป็นได้ทั้งชื่อเพลงหรือชื่อศิลปิน —
+    ถือเป็นศิลปินก็ต่อเมื่อส่วนนั้นเป็นชื่อที่โผล่หลายคลิป หรือตรงกับชื่อช่องของคลิปนั้นเอง ไม่งั้นคือเพลงเดิม
+    """
+    cand_parts = {x for x in _title_parts(cand_title) if len(x) >= 3}
+    if not cand_parts:
+        return False
+    author = _norm_author(cand_author)
+    recent: set[str] = set()
+    for t in avoid_titles:
+        recent |= _title_parts(t)
+    for x in cand_parts:
+        if not _part_match(x, recent):
+            continue
+        if _part_match(x, artist_parts) or (len(author) >= 3 and (x in author or author in x)):
+            continue                      # ส่วนนี้คือชื่อศิลปิน ไม่ใช่ชื่อเพลง
+        return True
+    return False
+
+
 async def _cooccurrence_candidates(query: str, seed_video_id: str) -> dict[str, int]:
     """เพลงที่คนเอาไปใส่เพลย์ลิสต์ร่วมกับเพลงนี้ นับว่าโผล่กี่เพลย์ลิสต์ (ยิ่งมากยิ่งน่าจะแนวเดียวกัน)
 
@@ -634,6 +672,14 @@ async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids
                 prev.append((str((await probe_video(prev_vid)).get("author") or ""), prev_title))
     # ชื่อคลิปที่ไม่มีชื่อศิลปิน ("ใจ... กลางเมือง") ค้นเพลย์ลิสต์แล้วได้ของมั่ว ใช้ชื่อเพลงก่อนหน้าที่มีศิลปินค้นแทน
     query_title = next((t for _, t in seeds if len(_title_parts(clean_title(t) or t)) >= 2), current_title)
+    # ศิลปินเดิมมา 2 เพลงแล้ว (โหมดแนวเดียวกัน) — เพลย์ลิสต์ของศิลปินนี้มีแต่เพลงเขาเอง
+    # ให้ไปค้นจากเพลงก่อนหน้าที่เป็นศิลปินอื่นแทน จะได้กระโดดไปวงอื่นในแนวเดียวกัน
+    seed_author = str((await probe_video(seed_video_id)).get("author") or "") if seed_video_id else ""
+    if mode != "artist" and any(same_author(a, seed_author) or shares_artist_part(t, current_title) for a, t in prev):
+        for _, t in seeds[1:]:
+            if not shares_artist_part(t, current_title) and len(_title_parts(clean_title(t) or t)) >= 2:
+                query_title = t
+                break
     for vid, title in seeds[:3]:
         found = await _find_from_seed(vid, title, exclude_ids, avoid_titles, mode, prev,
                                       query_title if vid == seed_video_id else title)
@@ -660,22 +706,24 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
     if seed_video_id:
         all_exclude.add(seed_video_id)
     avoid = [t for t in [current_title, *(avoid_titles or [])] if t]
+    seed_author = ""
+    if seed_video_id:
+        seed_probe = await probe_video(seed_video_id)
+        seed_author = str(seed_probe.get("author") or "")
+    artist_parts = artist_parts_of(avoid, seed_author)
 
-    def usable(title: str, trusted: bool = True) -> bool:
+    def usable(title: str, trusted: bool = True, author: str = "") -> bool:
         lower = title.lower()
         if any(bad in lower for bad in _NON_MUSIC_KEYWORDS):
             return False
         if not trusted and (not looks_like_song(title) or _VERSION_HINT.search(title)):
             return False   # คลิปที่ไม่มีหลักฐานอื่นว่าเป็นเพลงแนวนี้ ไม่เอา cover / remix / karaoke มาเสี่ยง
-        return not any(is_too_similar(title, used) for used in avoid)
+        if any(is_too_similar(title, used) for used in avoid):
+            return False
+        return not is_same_song_as_recent(title, author, avoid, artist_parts)
 
     def pick(p: dict) -> dict:
         return {"videoId": p["videoId"], "title": p.get("title", "")}
-
-    seed_author = ""
-    if seed_video_id:
-        seed_probe = await probe_video(seed_video_id)
-        seed_author = str(seed_probe.get("author") or "")
 
     # ---- แนวเดียวกัน: YouTube Mix ก่อน (ใช้ได้เมื่อรันในวง LAN/บ้าน) ----
     if mode != "artist" and seed_video_id:
@@ -685,30 +733,33 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
             # หัวแถวของ Mix มักเป็นเพลงเดิมเวอร์ชันอื่น จึงตรวจกว้างหน่อยกันหมดตัวเลือก
             probes = await probe_many(candidates[:20])
             for p in probes:
-                if p.get("ok") and usable(p.get("title", "")):
+                if p.get("ok") and usable(p.get("title", ""), author=p.get("author", "")):
                     return pick(p)
 
     # ---- เพลย์ลิสต์สาธารณะ: หาเพลงที่คนจัดไว้ร่วมกับเพลงนี้ / ของศิลปินนี้ ----
-    if mode == "artist":
-        query = author_query(seed_author) or clean_title(current_title) or current_title
-    else:
-        # ชื่อคลิปที่มีแต่ชื่อเพลงล้วน ๆ อย่าง "วันที่พบเธอ" มีหลายศิลปินใช้ ต้องเติมชื่อช่องช่วย
-        # แต่ถ้าชื่อมีศิลปินอยู่แล้ว ("แฟนเก่า : ลาบานูน") ห้ามเติม — ช่องมักเป็นค่าย (GMM GRAMMY)
-        # แล้วจะได้เพลย์ลิสต์ของค่ายซึ่งเป็นคนละแนวกันหมด
-        base = query_title or current_title
-        query = clean_title(base) or base
-        if seed_author and len(_title_parts(query)) < 2:
-            query = f"{query} {author_query(seed_author)}".strip()
+    # ค้นด้วยชื่อคลิป (ชื่อเพลง + ศิลปิน) ทั้งสองโหมด — ชื่อช่องเชื่อไม่ได้ เพราะคลิปที่เล่นอาจเป็นของคนอัปซ้ำ
+    # ("แฟนเก่า : ลาบานูน" จากช่อง "ไดโนเศร้า") หรือเป็นค่าย (GMM GRAMMY) ซึ่งอัปหลายศิลปินหลายแนว
+    # ชื่อคลิปที่มีแต่ชื่อเพลงล้วน ๆ อย่าง "วันที่พบเธอ" มีหลายศิลปินใช้ ค่อยเติมชื่อช่องช่วยเฉพาะกรณีนั้น
+    base = query_title or current_title
+    query = clean_title(base) or base
+    if seed_author and len(_title_parts(query)) < 2:
+        query = f"{query} {author_query(seed_author)}".strip()
     if not query:
         return None
     counts = await _cooccurrence_candidates(query, seed_video_id)
-    if not counts and mode == "artist":
-        # ไม่มีเพลย์ลิสต์ชื่อศิลปิน — ใช้เพลย์ลิสต์ที่มีเพลงนี้แทน แล้วค่อยกรองเฉพาะช่องเดียวกันด้านล่าง
-        counts = await _cooccurrence_candidates(clean_title(current_title) or current_title, seed_video_id)
+    if not counts and mode == "artist" and seed_author:
+        counts = await _cooccurrence_candidates(author_query(seed_author), seed_video_id)
     order = [v for v in _weighted_order(counts) if v not in all_exclude][:40]
 
+    # ชื่อคลิปที่มีชื่อศิลปินอยู่แล้ว ให้ยึดชื่อนั้น — ชื่อช่องเชื่อไม่ได้เมื่อเป็นคลิปอัปซ้ำหรือช่องค่าย
+    title_has_artist = len(_title_parts(clean_title(current_title) or current_title)) >= 2
+
     def same_artist(p: dict) -> bool:
-        return same_author(p.get("author", ""), seed_author) or shares_artist_part(p.get("title", ""), current_title)
+        if shares_artist_part(p.get("title", ""), current_title):
+            return True
+        if mode == "artist":
+            return not title_has_artist and same_author(p.get("author", ""), seed_author)
+        return same_author(p.get("author", ""), seed_author)   # แนวเดียวกัน: ช่องเดียวกันก็นับว่าศิลปินเดิม
 
     # ศิลปินของเพลงนี้เพิ่งเล่นไปใน 2 เพลงก่อนหน้าด้วย -> รอบนี้ต้องเป็นศิลปินอื่น จะได้ไม่วนอยู่กับคนเดียว
     force_other = any(same_author(a, seed_author) or shares_artist_part(t, current_title) for a, t in (prev or []))
@@ -716,13 +767,11 @@ async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: s
     for start in range(0, len(order), 20):
         probes = await probe_many(order[start:start + 20])
         ok = [p for p in probes
-              if p.get("ok") and usable(p.get("title", ""), trusted=counts.get(p["videoId"], 0) >= 2)]
+              if p.get("ok") and usable(p.get("title", ""), trusted=counts.get(p["videoId"], 0) >= 2,
+                                        author=p.get("author", ""))]
         if mode == "artist":
-            if not seed_author:
-                if ok:
-                    return pick(ok[0])
-                continue
-            same = [p for p in ok if same_author(p.get("author", ""), seed_author)]
+            # ศิลปินเดิม = ช่องเดียวกัน หรือชื่อคลิปมีชื่อศิลปินเดียวกับเพลงที่เพิ่งเล่น
+            same = [p for p in ok if same_artist(p)]
             if same:
                 return pick(same[0])
             continue
