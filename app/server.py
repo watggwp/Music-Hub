@@ -83,12 +83,13 @@ _announce_last = 0.0                  # เวลาที่มีประก�
 # ผู้ประกาศอัดเสียงในเบราว์เซอร์ แล้วอัปโหลดคลิปมาพักไว้ในหน่วยความจำก่อนส่งประกาศ
 # เครื่องลำโพงดึงคลิปไปเล่นแทนเสียงอ่าน คลิปอยู่ชั่วคราวเท่านั้น ไม่เขียนลงดิสก์
 # (บน Render ดิสก์หายทุกครั้งที่ deploy อยู่แล้ว และคลิปไม่กี่สิบวินาทีไม่มีค่าควรเก็บ)
-CLIP_MAX_MS = 30_000            # ความยาวคลิปสูงสุด — นานกว่านี้เพลงโดนหรี่นานเกินไป
-CLIP_MAX_BYTES = 3_000_000      # opus 30 วิ ~ 150 KB แต่ iPhone อัดเป็น AAC ซึ่งใหญ่กว่าหลายเท่า
+CLIP_MAX_MS = 60_000            # ความยาวคลิปสูงสุด — นานกว่านี้เพลงโดนหรี่นานเกินไป
+CLIP_MAX_BYTES = 12_000_000     # wav 60 วิ สเตอริโอ ~ 10.5 MB — ไฟล์ที่เลือกจากคอมมักไม่ได้บีบอัด
 CLIP_TTL = 600.0                # วินาที — คลิปที่อัปโหลดแล้วไม่ถูกใช้ หรือใช้จบแล้ว ลบทิ้ง
 CLIP_MAX_COUNT = 50             # กันคนยิงอัปโหลดรัวจนกินหน่วยความจำ
-CLIP_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/aac",
-              "audio/x-m4a", "audio/3gpp"}
+CLIP_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/mp3", "audio/wav",
+              "audio/x-wav", "audio/wave", "audio/vnd.wave", "audio/aac", "audio/x-m4a",
+              "audio/m4a", "audio/3gpp", "audio/flac", "audio/x-flac"}
 
 _clips: dict[str, dict[str, Any]] = {}   # clip_id -> {data, mime, at}
 

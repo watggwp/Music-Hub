@@ -209,7 +209,12 @@
 
   /* อัดเสียงพูดเองในหน้าต่างประกาศ — คลิปพักไว้ที่เครื่องผู้ประกาศจนกว่าจะกดส่ง
      ค่อยอัปโหลดขึ้นเซิร์ฟเวอร์ แล้วแนบ clipId ไปกับประกาศ ลำโพงดึงคลิปไปเล่นแทนเสียงอ่าน */
-  const REC_MAX_MS = 30000;
+  const REC_MAX_MS = 60000;
+  const REC_MAX_BYTES = 12000000;        // ต้องตรงกับ CLIP_MAX_BYTES ฝั่งเซิร์ฟเวอร์
+  // นามสกุล -> ชนิด เผื่อเบราว์เซอร์ไม่บอก type ของไฟล์ที่เลือก (Windows เจอบ่อยกับ .m4a/.flac)
+  const AUDIO_EXT = { mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", aac: "audio/aac",
+                      wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", webm: "audio/webm",
+                      flac: "audio/flac" };
   let recorder = null;         // MediaRecorder ระหว่างอัด (null = ไม่ได้อัดอยู่)
   let recChunks = [];
   let recStart = 0;
@@ -454,11 +459,13 @@
     btn.classList.toggle("recording", recording);
     btn.textContent = recording ? "หยุดอัด" : (recClip ? "อัดใหม่" : "อัดเสียงพูดเอง");
     btn.disabled = sendingAnnounce;
+    if ($("recFileBtn")) $("recFileBtn").disabled = sendingAnnounce || recording;
     if (preview) preview.hidden = recording || !recClip;
     if (recClip && $("recAudio") && $("recAudio").src !== recClip.url) $("recAudio").src = recClip.url;
     if (!recording) {
       status.textContent = recClip
-        ? "คลิปยาว " + (recClip.ms / 1000).toFixed(1) + " วินาที — ลำโพงจะเล่นคลิปนี้แทนเสียงอ่าน"
+        ? (recClip.name ? "ไฟล์ " + recClip.name + " ยาว " : "คลิปยาว ")
+          + (recClip.ms / 1000).toFixed(1) + " วินาที — ลำโพงจะเล่นคลิปนี้แทนเสียงอ่าน"
         : (recSupported() ? "ยังไม่มีคลิป"
           : (window.isSecureContext ? "เบราว์เซอร์นี้อัดเสียงไม่ได้"
             : "อัดเสียงได้เฉพาะเมื่อเปิดผ่าน https หรือ localhost"));
@@ -529,6 +536,41 @@
       if (sec * 1000 >= REC_MAX_MS) stopRecording();
     }, 200);
     updateRecUi();
+  }
+
+  /* เลือกไฟล์เสียงจากเครื่องแทนการอัด — ใช้ช่องทางอัปโหลดเดียวกับคลิปที่อัด
+     ต้องวัดความยาวด้วย <audio> ก่อน เพราะเซิร์ฟเวอร์ไม่แกะไฟล์เสียง และคลิปยาวเกินจะหรี่เพลงนานเกินไป */
+  function pickClipFile(file) {
+    if (!file) return;
+    if (recorder) stopRecording();
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const mime = ((file.type || "").split(";")[0] || AUDIO_EXT[ext] || "").toLowerCase();
+    if (!mime.startsWith("audio/")) {
+      toast("ไฟล์นี้ไม่ใช่ไฟล์เสียง ใช้ได้เฉพาะ mp3, m4a, wav, ogg, webm, aac, flac", 7000);
+      return;
+    }
+    if (file.size > REC_MAX_BYTES) {
+      toast("ไฟล์ใหญ่เกิน " + Math.round(REC_MAX_BYTES / 1e6) + " MB ลองแปลงเป็น mp3 ก่อน", 7000);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const probe = new Audio();
+    probe.preload = "metadata";
+    const fail = (msg) => { try { URL.revokeObjectURL(url); } catch (_) { } toast(msg, 7000); };
+    probe.onloadedmetadata = () => {
+      const sec = probe.duration;
+      if (!Number.isFinite(sec) || sec <= 0) { fail("อ่านความยาวไฟล์นี้ไม่ได้ ลองแปลงเป็น mp3 ก่อน"); return; }
+      if (sec * 1000 > REC_MAX_MS + 500) {
+        fail("ไฟล์ยาว " + sec.toFixed(0) + " วินาที เกินกำหนด " + (REC_MAX_MS / 1000) + " วินาที ตัดให้สั้นลงก่อน");
+        return;
+      }
+      discardClip();
+      recClip = { blob: file, mime: mime, ms: Math.min(Math.round(sec * 1000), REC_MAX_MS),
+                  url: url, name: file.name };
+      updateRecUi();
+    };
+    probe.onerror = () => fail("เบราว์เซอร์นี้เปิดไฟล์เสียงนี้ไม่ได้ ลองแปลงเป็น mp3 ก่อน");
+    probe.src = url;
   }
 
   function stopRecording() {
@@ -1785,6 +1827,8 @@
   });
   on("recBtn", "click", () => { if (recorder) stopRecording(); else startRecording(); });
   on("recDiscardBtn", "click", discardClip);
+  on("recFileBtn", "click", () => { const f = $("recFile"); if (f) { f.value = ""; f.click(); } });
+  on("recFile", "change", (e) => pickClipFile(e.target.files && e.target.files[0]));
   on("announceInput", "input", (e) => {
     $("announceCount").textContent = e.target.value.length + " / 200";
   });

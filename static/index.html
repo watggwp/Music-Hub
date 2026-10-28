@@ -295,13 +295,15 @@
       <div class="announce-rec">
         <div class="announce-rec-row">
           <button type="button" id="recBtn" class="ghost small gold">อัดเสียงพูดเอง</button>
+          <button type="button" id="recFileBtn" class="ghost small">เลือกไฟล์เสียงจากเครื่อง</button>
+          <input id="recFile" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.flac" hidden />
           <span id="recStatus" class="tiny muted">ยังไม่มีคลิป</span>
         </div>
         <div id="recPreview" class="announce-rec-row" hidden>
           <audio id="recAudio" controls preload="auto"></audio>
           <button type="button" id="recDiscardBtn" class="ghost small">ลบคลิป</button>
         </div>
-        <p class="hint" id="recHint">อัดได้ไม่เกิน 30 วินาที ถ้ามีคลิป ลำโพงจะเล่นเสียงของคุณแทนเสียงอ่าน ส่วนข้อความจะขึ้นเป็นแบนเนอร์ (พิมพ์หรือไม่พิมพ์ก็ได้)</p>
+        <p class="hint" id="recHint">อัดเสียงหรือเลือกไฟล์ mp3 / m4a / wav ได้ยาวไม่เกิน 60 วินาที ถ้ามีคลิป ลำโพงจะเล่นคลิปแทนเสียงอ่าน ส่วนข้อความจะขึ้นเป็นแบนเนอร์ (พิมพ์หรือไม่พิมพ์ก็ได้)</p>
       </div>
 
       <div class="announce-opts">
@@ -339,7 +341,7 @@
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=42"></script>
+  <script src="/static/app.js?v=43"></script>
 </body>
 
 </html>
