@@ -10,6 +10,7 @@ import asyncio
 import html as html_module
 import json
 import logging
+import random
 import re
 import time
 import urllib.error
@@ -30,6 +31,9 @@ PROBE_WORKERS = 8             # ตรวจหลายคลิปพร้อ
 SEARCH_LIMIT = 12             # ผลค้นหาที่ส่งกลับหน้าเว็บ
 SEARCH_TTL = 300              # เก็บผลค้นหาไว้ใช้ซ้ำกี่วินาที
 SEARCH_CACHE_MAX = 60
+PLAYLIST_TTL = 1800           # เก็บรายการเพลงใน playlist ไว้ใช้ซ้ำกี่วินาที (Auto DJ อ่าน playlist เดิมบ่อย)
+PLAYLIST_CACHE_MAX = 120
+AUTO_DJ_PLAYLISTS = 6         # Auto DJ อ่านเพลย์ลิสต์สาธารณะกี่ชุดต่อการหาเพลงหนึ่งครั้ง
 
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _PLAYLIST_ID = re.compile(r"^(?:PL|RD|OLAK|UU|LL|FL|TL|VL|CL)[A-Za-z0-9_-]{8,}$")
@@ -87,8 +91,9 @@ def _probe_sync(video_id: str) -> dict:
     )
     try:
         with urllib.request.urlopen(url, timeout=6) as resp:
-            title = json.loads(resp.read().decode("utf-8")).get("title")
-        return {"ok": True, "title": title or f"YouTube · {video_id}"}
+            data = json.loads(resp.read().decode("utf-8"))
+        return {"ok": True, "title": data.get("title") or f"YouTube · {video_id}",
+                "author": str(data.get("author_name") or "")}
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             return {"ok": False, "reason": "embed"}
@@ -100,14 +105,29 @@ def _probe_sync(video_id: str) -> dict:
         return {"ok": True, "title": f"YouTube · {video_id}", "unverified": True}
 
 
+_probe_cache: dict[str, tuple[float, dict]] = {}
+PROBE_TTL = 3600
+PROBE_CACHE_MAX = 500
+
+
 async def probe_video(video_id: str) -> dict:
-    """ตรวจว่าคลิปนี้ฝังเล่นได้ไหม พร้อมดึงชื่อคลิปมาในคราวเดียว
+    """ตรวจว่าคลิปนี้ฝังเล่นได้ไหม พร้อมดึงชื่อคลิปและชื่อช่องมาในคราวเดียว
 
     reason "embed"   = เจ้าของปิดการเล่นแบบฝัง
     reason "missing" = ไม่พบคลิป / ถูกลบ / เป็นส่วนตัว
-    unverified       = ตรวจไม่สำเร็จ (เน็ตหรือ YouTube ขัดข้อง) แต่ให้ผ่านไปก่อน
+    unverified       = ตรวจไม่สำเร็จ (เน็ตหรือ YouTube ขัดข้อง) แต่ให้ผ่านไปก่อน — ไม่แคชผลแบบนี้
+
+    Auto DJ ถามคลิปเดิมซ้ำบ่อย (seed, เพลงก่อนหน้า, คลิปในเพลย์ลิสต์เดิม) จึงจำผลไว้หนึ่งชั่วโมง
     """
-    return await asyncio.to_thread(_probe_sync, video_id)
+    cached = _probe_cache.get(video_id)
+    if cached and time.monotonic() - cached[0] < PROBE_TTL:
+        return dict(cached[1])
+    result = await asyncio.to_thread(_probe_sync, video_id)
+    if not result.get("unverified"):
+        if len(_probe_cache) >= PROBE_CACHE_MAX:
+            _probe_cache.clear()
+        _probe_cache[video_id] = (time.monotonic(), dict(result))
+    return result
 
 
 async def probe_many(video_ids: list[str]) -> list[dict]:
@@ -201,6 +221,61 @@ def _search_sync(query: str, limit: int) -> list[dict[str, Any]]:
             }
         )
     return found
+
+
+def _search_playlists_sync(query: str, limit: int) -> list[dict[str, Any]]:
+    """ค้นหาเฉพาะ 'เพลย์ลิสต์' สาธารณะ (sp=EgIQAw== คือตัวกรองชนิด playlist ของหน้าค้นหา)
+
+    หน้าค้นหารุ่นใหม่ใช้ lockupViewModel รุ่นเก่าใช้ playlistRenderer อ่านทั้งสองแบบ
+    """
+    url = "https://www.youtube.com/results?" + urllib.parse.urlencode(
+        {"search_query": query, "sp": "EgIQAw==", "hl": "th"}
+    )
+    request = urllib.request.Request(
+        url, headers={"User-Agent": UA, "Accept-Language": "th,en;q=0.9"}
+    )
+    with urllib.request.urlopen(request, timeout=15) as resp:
+        html = resp.read().decode("utf-8", "replace")
+
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for marker in ('"lockupViewModel":{', '"playlistRenderer":{'):
+        pos = 0
+        while len(found) < limit:
+            pos = html.find(marker, pos)
+            if pos < 0:
+                break
+            blob = _take_object(html, pos + len(marker) - 1)
+            pos += len(marker)
+            if not blob:
+                continue
+            try:
+                item = json.loads(blob)
+            except ValueError:
+                continue
+            playlist_id = str(item.get("contentId") or item.get("playlistId") or "")
+            if not playlist_id.startswith("PL") or playlist_id in seen:
+                continue
+            meta = item.get("metadata", {}).get("lockupMetadataViewModel", {})
+            title = str(meta.get("title", {}).get("content") or "") or _runs_text(item.get("title", {}))
+            seen.add(playlist_id)
+            found.append({"playlistId": playlist_id, "title": title})
+    return found
+
+
+async def search_playlists(query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
+    key = f"pl:{limit}:{query.strip().lower()}"
+    cached = _search_cache.get(key)
+    if cached and time.monotonic() - cached[0] < SEARCH_TTL:
+        return cached[1]
+    try:
+        results = await asyncio.to_thread(_search_playlists_sync, query, limit)
+    except Exception:
+        return []
+    if len(_search_cache) >= SEARCH_CACHE_MAX:
+        _search_cache.clear()
+    _search_cache[key] = (time.monotonic(), results)
+    return results
 
 
 async def search_videos(query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
@@ -344,11 +419,22 @@ def _playlist_ids_sync(playlist_id: str) -> list[str]:
     return []
 
 
+_playlist_cache: dict[str, tuple[float, list[str]]] = {}
+
+
 async def playlist_video_ids(playlist_id: str) -> list[str]:
+    cached = _playlist_cache.get(playlist_id)
+    if cached and time.monotonic() - cached[0] < PLAYLIST_TTL:
+        return cached[1]
     try:
-        return await asyncio.to_thread(_playlist_ids_sync, playlist_id)
+        vids = await asyncio.to_thread(_playlist_ids_sync, playlist_id)
     except Exception:
         return []
+    if vids:
+        if len(_playlist_cache) >= PLAYLIST_CACHE_MAX:
+            _playlist_cache.clear()
+        _playlist_cache[playlist_id] = (time.monotonic(), vids)
+    return vids
 
 
 # ---------------- Spotify Track & Playlist Extraction ----------------
@@ -404,7 +490,7 @@ _TITLE_NOISE = re.compile(
     r"sped up|slowed|reverb|live|full|topic|prod\.?|feat\.?|ft\.?|\bmv\b|m/v|\bhq\b|\bhd\b|\b4k\b|"
     r"\u0e40\u0e19\u0e37\u0e49\u0e2d\u0e40\u0e1e\u0e25\u0e07|\u0e04\u0e32\u0e23\u0e32\u0e42\u0e2d\u0e40\u0e01\u0e30|\u0e04\u0e2d\u0e23\u0e4c\u0e14", re.I)
 # \u0e04\u0e33\u0e17\u0e35\u0e48\u0e1a\u0e2d\u0e01\u0e27\u0e48\u0e32\u0e40\u0e1b\u0e47\u0e19 "\u0e2d\u0e35\u0e01\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19\u0e02\u0e2d\u0e07\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e34\u0e21" \u2014 \u0e40\u0e08\u0e2d\u0e41\u0e25\u0e49\u0e27\u0e41\u0e04\u0e48\u0e0a\u0e37\u0e48\u0e2d\u0e40\u0e1e\u0e25\u0e07\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19\u0e01\u0e47\u0e16\u0e37\u0e2d\u0e40\u0e1b\u0e47\u0e19\u0e40\u0e1e\u0e25\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27\u0e01\u0e31\u0e19
-_VERSION_HINT = re.compile(r"cover|remix|karaoke|sped up|slowed|live|acoustic|\u0e04\u0e32\u0e23\u0e32\u0e42\u0e2d\u0e40\u0e01\u0e30|\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19", re.I)
+_VERSION_HINT = re.compile(r"cover|remix|karaoke|sped up|slowed|live|acoustic|remaster|version|instrumental|nightcore|lofi|8d|\u0e04\u0e32\u0e23\u0e32\u0e42\u0e2d\u0e40\u0e01\u0e30|\u0e40\u0e27\u0e2d\u0e23\u0e4c\u0e0a\u0e31\u0e19", re.I)
 _BRACKET = re.compile(r"[(\[\u3010\uff08\u300c]([^)\]\u3011\uff09\u300d]*)[)\]\u3011\uff09\u300d]")
 _SEPARATOR = re.compile(r"\s+[-\u2013\u2014]\s*|\s*[-\u2013\u2014]\s+|[|\uff5c/:,&+]|\s+x\s+|\s+(?:feat|ft)\.?\s+", re.I)
 
@@ -450,60 +536,210 @@ def is_too_similar(title_a: str, title_b: str) -> bool:
     return False
 
 
-_NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind the scene", "reaction", "vlog", "podcast"}
+_NON_MUSIC_KEYWORDS = {"audiobook", "trailer", "teaser", "interview", "behind the scene", "reaction", "vlog", "podcast",
+                       "tutorial", "how to", "review", "unboxing", "gameplay", "ep.", "episode",
+                       "(skit)", "skit", "(intro)", "(outro)", "interlude",
+                       "รีวิว", "สอน", "ตอนที่", "ข่าว", "นิทาน", "การ์ตูน", "ละคร", "หนัง", "ตัวอย่าง", "เกม",
+                       "พิพิธภัณฑ์", "ท่องเที่ยว", "เที่ยว", "ทำอาหาร", "สัมภาษณ์", "เบื้องหลัง", "ไลฟ์สด", "ถ่ายทอดสด",
+                       # คลิปรวมเพลงยาว ๆ — Auto DJ ต้องการเพลงเดียว ไม่ใช่เพลย์ลิสต์ในคลิปเดียว
+                       "รวมเพลง", "รวมฮิต", "รวมบทเพลง", "playlist", "longplay", "long play", "nonstop", "non-stop",
+                       "non stop", "ต่อเนื่อง", "ฟังยาว", "ชุดที่", "full album", "อัลบั้มเต็ม", "medley", "เมดเล่ย์",
+                       "ฟังเพลิน", "ฟังสบาย", "เพลงเพราะๆ", "เพลงเพราะ ๆ", "best of", "the best", "very best",
+                       "greatest hits", "ชุดพิเศษ", "ชุดเต็ม", "hits collection", "all songs", "ทุกเพลง",
+                       # บันทึกการแสดงสด เสียงไม่เหมาะเปิดในออฟฟิศ และมักยาวหลายเพลง
+                       "live at", "live in", "concert", "คอนเสิร์ต", "แสดงสด"}
+
+# คลิปเพลงส่วนใหญ่ตั้งชื่อแบบ "ศิลปิน - ชื่อเพลง" หรือมีคำพวก Official / MV / Lyric
+# ใช้คัดคลิปที่โผล่ในเพลย์ลิสต์แค่ชุดเดียว (ไม่มีหลักฐานอื่นว่าเป็นเพลง) กันของมั่ว ๆ ในเพลย์ลิสต์ส่วนตัว
+_SONG_HINT = re.compile(r" - |–|—|\||:|feat|ft\.|official|mv|m/v|lyric|audio|เพลง|cover|remix|"
+                        r"acoustic|live|【|「|『|\[", re.I)
+
+
+def looks_like_song(title: str) -> bool:
+    return bool(_SONG_HINT.search(title or ""))
 
 # ---------------- Auto DJ (ค้นหาเพลงถัดไปอัตโนมัติ) ----------------
+_AUTHOR_NOISE = re.compile(r"official|channel|vevo|music|records?|entertainment|- topic|\btopic\b|\s+", re.I)
+
+
+def _norm_author(name: str) -> str:
+    return _AUTHOR_NOISE.sub("", (name or "").lower())
+
+
+_AUTHOR_SUFFIX = re.compile(r"official|vevo|- topic|topic|channel", re.I)
+
+
+def author_query(name: str) -> str:
+    """ชื่อช่องที่เอาไปค้นหาได้ — "PUNVEVO" / "LABANOON OFFICIAL" / "PUN - Topic" ล้วนควรค้นว่า PUN"""
+    return " ".join(_AUTHOR_SUFFIX.sub(" ", name or "").split())
+
+
+def same_author(a: str, b: str) -> bool:
+    """ช่องเดียวกันไหม — ตัดคำว่า Official / VEVO / Topic ออกก่อนเทียบ (PUN OFFICIAL กับ PUN - Topic = คนเดียวกัน)"""
+    na, nb = _norm_author(a), _norm_author(b)
+    if not na or not nb:
+        return False
+    return na == nb or (min(len(na), len(nb)) >= 3 and (na in nb or nb in na))
+
+
+def shares_artist_part(title_a: str, title_b: str) -> bool:
+    """ชื่อคลิปสองอันมี 'ส่วน' ร่วมกันไหม (ศิลปิน / วง) — ใช้แทนชื่อช่อง เพราะค่ายไทยอัปหลายศิลปินในช่องเดียว
+    และศิลปินเดียวกันกระจายอยู่หลายช่อง (GMM GRAMMY / genie records / ช่องศิลปิน / Topic)
+
+    เพลงเดียวกันถูกกรองด้วย is_too_similar ไปก่อนแล้ว ส่วนที่เหลือร่วมกันจึงมักเป็นชื่อศิลปิน
+    """
+    pa = {x for x in _title_parts(title_a) if len(x) >= 3}
+    pb = {x for x in _title_parts(title_b) if len(x) >= 3}
+    return any(_part_match(x, pb) for x in pa)
+
+
+async def _cooccurrence_candidates(query: str, seed_video_id: str) -> dict[str, int]:
+    """เพลงที่คนเอาไปใส่เพลย์ลิสต์ร่วมกับเพลงนี้ นับว่าโผล่กี่เพลย์ลิสต์ (ยิ่งมากยิ่งน่าจะแนวเดียวกัน)
+
+    ใช้แทน YouTube Mix บนเซิร์ฟเวอร์ที่ถูก YouTube บล็อกหน้า watch — หน้าค้นหาและหน้า playlist ยังอ่านได้
+    เพลย์ลิสต์เล็กมาก ๆ มักเป็นของส่วนตัวที่ใส่มั่ว ๆ จึงข้ามไป
+    """
+    playlists = await search_playlists(query, limit=AUTO_DJ_PLAYLISTS * 2)
+    if not playlists:
+        return {}
+    reads = await asyncio.gather(*(playlist_video_ids(p["playlistId"])
+                                   for p in playlists[:AUTO_DJ_PLAYLISTS]))
+    counts: dict[str, int] = {}
+    for vids in reads:
+        if len(vids) < 10:
+            continue
+        for vid in set(vids):
+            if vid != seed_video_id:
+                counts[vid] = counts.get(vid, 0) + 1
+    return counts
+
+
+def _weighted_order(counts: dict[str, int]) -> list[str]:
+    """เพลงที่โผล่หลายเพลย์ลิสต์มาก่อน (น่าเชื่อกว่าว่าเป็นเพลงแนวนี้จริง) ที่เท่ากันสุ่มลำดับ"""
+    return sorted(counts, key=lambda v: (-counts[v], random.random()))
+
+
 async def find_auto_dj_track(seed_video_id: str, current_title: str, exclude_ids: set[str],
-                             avoid_titles: list[str] | None = None) -> dict | None:
-    """ค้นหาเพลงถัดไปที่ไม่ใช่เพลงเดิม โดยใช้ YouTube Radio / Mix และค้นหาเพลงแนวเดียวกัน
+                             avoid_titles: list[str] | None = None,
+                             mode: str = "genre",
+                             fallback_seeds: list[tuple[str, str]] | None = None) -> dict | None:
+    """หาเพลงถัดไปให้ Auto DJ — ลองจากเพลงล่าสุดก่อน ถ้าหาไม่ได้ (เพลงหายาก) ถอยไปใช้เพลงก่อนหน้าเป็น seed"""
+    seeds = [(seed_video_id, current_title)] + [s for s in (fallback_seeds or [])
+                                                 if s[0] != seed_video_id]
+    # ศิลปินเดิมโผล่ใน 2 เพลงก่อนหน้า รอบนี้ (โหมดแนวเดียวกัน) ต้องเป็นศิลปินอื่น ไม่งั้นกลายเป็นโหมดศิลปินเดิมไปโดยปริยาย
+    prev: list[tuple[str, str]] = []
+    if mode != "artist":
+        for prev_vid, prev_title in (fallback_seeds or [])[:2]:
+            if prev_vid and prev_vid != seed_video_id:
+                prev.append((str((await probe_video(prev_vid)).get("author") or ""), prev_title))
+    # ชื่อคลิปที่ไม่มีชื่อศิลปิน ("ใจ... กลางเมือง") ค้นเพลย์ลิสต์แล้วได้ของมั่ว ใช้ชื่อเพลงก่อนหน้าที่มีศิลปินค้นแทน
+    query_title = next((t for _, t in seeds if len(_title_parts(clean_title(t) or t)) >= 2), current_title)
+    for vid, title in seeds[:3]:
+        found = await _find_from_seed(vid, title, exclude_ids, avoid_titles, mode, prev,
+                                      query_title if vid == seed_video_id else title)
+        if found:
+            return found
+    return None
+
+
+async def _find_from_seed(seed_video_id: str, current_title: str, exclude_ids: set[str],
+                          avoid_titles: list[str] | None, mode: str,
+                          prev: list[tuple[str, str]] | None = None,
+                          query_title: str = "") -> dict | None:
+    """หาเพลงถัดไปจาก seed หนึ่งเพลง
+
+    mode "genre"  = แนวเดียวกัน: YouTube Mix ของเพลงล่าสุดถ้าอ่านได้ ไม่งั้นใช้เพลย์ลิสต์สาธารณะที่มีเพลงนี้อยู่
+                    และพยายามเลี่ยงศิลปินเดิมเพื่อให้หลากหลาย
+    mode "artist" = ศิลปินเดิม: เพลย์ลิสต์สาธารณะของศิลปิน แล้วเลือกเฉพาะคลิปจากช่องเดียวกับเพลงล่าสุด
 
     avoid_titles = ชื่อเพลงที่กำลังเล่น อยู่ในคิว และเพิ่งเล่นไป ต้องไม่ได้เพลงเดียวกันที่คนอื่นอัปซ้ำมา
-    เทียบด้วยชื่อ เพราะ Mix และผลค้นหามักมีเพลงเดิมหลายคลิป (คนละช่อง videoId ไม่ซ้ำกัน)
+    เทียบด้วยชื่อ เพราะผลค้นหามักมีเพลงเดิมหลายคลิป (คนละช่อง videoId ไม่ซ้ำกัน)
+    ไม่มีการค้นหาด้วยชื่อเพลงตัวเองอีกแล้ว — วิธีนั้นได้แต่เพลงเดิมคนละคลิปกลับมา
     """
     all_exclude = set(exclude_ids)
     if seed_video_id:
         all_exclude.add(seed_video_id)
     avoid = [t for t in [current_title, *(avoid_titles or [])] if t]
 
-    def usable(title: str) -> bool:
+    def usable(title: str, trusted: bool = True) -> bool:
         lower = title.lower()
         if any(bad in lower for bad in _NON_MUSIC_KEYWORDS):
             return False
+        if not trusted and (not looks_like_song(title) or _VERSION_HINT.search(title)):
+            return False   # คลิปที่ไม่มีหลักฐานอื่นว่าเป็นเพลงแนวนี้ ไม่เอา cover / remix / karaoke มาเสี่ยง
         return not any(is_too_similar(title, used) for used in avoid)
 
-    # 1. วิธีที่ 1: ดึงจาก YouTube Mix (RD{video_id}) ของเพลงล่าสุด — แม่นยำและเป็นเพลงแนวเดียวกันที่สุด
+    def pick(p: dict) -> dict:
+        return {"videoId": p["videoId"], "title": p.get("title", "")}
+
+    seed_author = ""
     if seed_video_id:
-        mix_id = f"RD{seed_video_id}"
-        mix_vids = await playlist_video_ids(mix_id)
+        seed_probe = await probe_video(seed_video_id)
+        seed_author = str(seed_probe.get("author") or "")
+
+    # ---- แนวเดียวกัน: YouTube Mix ก่อน (ใช้ได้เมื่อรันในวง LAN/บ้าน) ----
+    if mode != "artist" and seed_video_id:
+        mix_vids = await playlist_video_ids(f"RD{seed_video_id}")
         candidates = [vid for vid in mix_vids if vid not in all_exclude]
         if candidates:
             # หัวแถวของ Mix มักเป็นเพลงเดิมเวอร์ชันอื่น จึงตรวจกว้างหน่อยกันหมดตัวเลือก
             probes = await probe_many(candidates[:20])
             for p in probes:
                 if p.get("ok") and usable(p.get("title", "")):
-                    return {
-                        "videoId": p["videoId"],
-                        "title": p.get("title", ""),
-                    }
+                    return pick(p)
 
-    # 2. วิธีที่ 2: หาก Mix ไม่มี ให้สกัดชื่อศิลปินหรือค้นหาเพลงที่เกี่ยวข้อง
-    query = clean_title(current_title)
+    # ---- เพลย์ลิสต์สาธารณะ: หาเพลงที่คนจัดไว้ร่วมกับเพลงนี้ / ของศิลปินนี้ ----
+    if mode == "artist":
+        query = author_query(seed_author) or clean_title(current_title) or current_title
+    else:
+        # ชื่อคลิปที่มีแต่ชื่อเพลงล้วน ๆ อย่าง "วันที่พบเธอ" มีหลายศิลปินใช้ ต้องเติมชื่อช่องช่วย
+        # แต่ถ้าชื่อมีศิลปินอยู่แล้ว ("แฟนเก่า : ลาบานูน") ห้ามเติม — ช่องมักเป็นค่าย (GMM GRAMMY)
+        # แล้วจะได้เพลย์ลิสต์ของค่ายซึ่งเป็นคนละแนวกันหมด
+        base = query_title or current_title
+        query = clean_title(base) or base
+        if seed_author and len(_title_parts(query)) < 2:
+            query = f"{query} {author_query(seed_author)}".strip()
     if not query:
-        query = current_title
+        return None
+    counts = await _cooccurrence_candidates(query, seed_video_id)
+    if not counts and mode == "artist":
+        # ไม่มีเพลย์ลิสต์ชื่อศิลปิน — ใช้เพลย์ลิสต์ที่มีเพลงนี้แทน แล้วค่อยกรองเฉพาะช่องเดียวกันด้านล่าง
+        counts = await _cooccurrence_candidates(clean_title(current_title) or current_title, seed_video_id)
+    order = [v for v in _weighted_order(counts) if v not in all_exclude][:40]
 
-    search_queries = [f"{query} related music", f"{query} song", f"{query} music"]
-    for q in search_queries:
-        candidates = await search_videos(q, limit=10)
-        for item in candidates:
-            vid = item.get("videoId")
-            cand_title = item.get("title", "")
-            if not vid or vid in all_exclude or not usable(cand_title):
+    def same_artist(p: dict) -> bool:
+        return same_author(p.get("author", ""), seed_author) or shares_artist_part(p.get("title", ""), current_title)
+
+    # ศิลปินของเพลงนี้เพิ่งเล่นไปใน 2 เพลงก่อนหน้าด้วย -> รอบนี้ต้องเป็นศิลปินอื่น จะได้ไม่วนอยู่กับคนเดียว
+    force_other = any(same_author(a, seed_author) or shares_artist_part(t, current_title) for a, t in (prev or []))
+
+    for start in range(0, len(order), 20):
+        probes = await probe_many(order[start:start + 20])
+        ok = [p for p in probes
+              if p.get("ok") and usable(p.get("title", ""), trusted=counts.get(p["videoId"], 0) >= 2)]
+        if mode == "artist":
+            if not seed_author:
+                if ok:
+                    return pick(ok[0])
                 continue
-            probe = await probe_video(vid)
-            # ชื่อจาก oEmbed อาจต่างจากหน้าค้นหา ตรวจซ้ำอีกรอบ
-            if probe.get("ok") and usable(probe.get("title", cand_title)):
-                return {
-                    "videoId": vid,
-                    "title": probe.get("title", cand_title),
-                }
+            same = [p for p in ok if same_author(p.get("author", ""), seed_author)]
+            if same:
+                return pick(same[0])
+            continue
+        # แนวเดียวกัน — ลำดับความน่าเชื่อ:
+        #   1. ศิลปินอื่นที่โผล่หลายเพลย์ลิสต์ (แนวเดียวกันแน่ และได้ความหลากหลาย)
+        #   2. ศิลปินเดิมที่โผล่หลายเพลย์ลิสต์ เว้นแต่เพิ่งเล่นศิลปินเดิมติดกันมาแล้ว
+        #   3. ศิลปินอื่นที่โผล่เพลย์ลิสต์เดียว (ผ่านตัวกรองชื่อแบบเพลงแล้ว)
+        #   4. ศิลปินเดิมที่เหลือ
+        same = [p for p in ok if same_artist(p)]
+        other = [p for p in ok if p not in same]
+        other_strong = [p for p in other if counts.get(p["videoId"], 0) >= 2]
+        same_strong = [p for p in same if counts.get(p["videoId"], 0) >= 2]
+        for group in (other_strong, [] if force_other else same_strong, other, [] if force_other else same):
+            if group:
+                return pick(group[0])
+        if force_other and same:
+            # ไม่มีศิลปินอื่นเลยในชุดนี้ ดูชุดถัดไปก่อน ถ้าหมดจริง ๆ ค่อยยอมศิลปินเดิม
+            if start + 20 >= len(order):
+                return pick(same[0])
     return None

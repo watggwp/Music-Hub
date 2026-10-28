@@ -21,6 +21,7 @@ class Room:
         self.playing = False
         self.open_control = True          # True = ทุกคนคุมได้, False = เฉพาะโฮสต์
         self.auto_dj = False               # True = ดึงเพลงต่ออัตโนมัติเมื่อคิวหมด
+        self.auto_dj_mode = "genre"        # "genre" = แนวเดียวกัน, "artist" = ศิลปินเดิม
         self.auto_dj_busy = False          # กำลังหาเพลงอยู่ กันสั่งซ้อนจนได้เพลงเดียวกันสองรอบ
         self.idle_since: float | None = time.monotonic()  # เวลาที่ห้องเริ่มว่าง (None = มีคนอยู่)
         self.dj_stats: dict[str, dict[str, Any]] = {} # name -> {"songs": count, "duration": seconds}
@@ -61,6 +62,10 @@ class Room:
 
     def set_auto_dj(self, value: Any) -> None:
         self.auto_dj = bool(value)
+
+    def set_auto_dj_mode(self, mode: Any) -> None:
+        if mode in {"genre", "artist"}:
+            self.auto_dj_mode = str(mode)
 
     # ---------- คิวเพลง ----------
     def current(self) -> dict[str, Any] | None:
@@ -245,6 +250,7 @@ class Room:
             "position": round(self.position(), 3),
             "openControl": self.open_control,
             "autoDj": self.auto_dj,
+            "autoDjMode": self.auto_dj_mode,
             "djStats": self.dj_stats,
             "totalPlayed": self.total_played,
             "volume": self.volume,

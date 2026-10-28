@@ -1053,6 +1053,12 @@
       autoDjBtn.className = state.autoDj ? "ghost small active" : "ghost small";
       autoDjBtn.disabled = !canControl;
     }
+    const autoDjMode = $("autoDjMode");
+    if (autoDjMode) {
+      // ไม่ทับค่าตอนผู้ใช้กำลังกางเมนูเลือกอยู่ ไม่งั้นเมนูเด้งปิดทุกครั้งที่ state เข้า
+      if (document.activeElement !== autoDjMode) autoDjMode.value = state.autoDjMode || "genre";
+      autoDjMode.disabled = !canControl;
+    }
 
     if (!draggingVolume) {
       const shown = wantedVolume();
@@ -1402,6 +1408,10 @@
 
   on("autoDjBtn", "click", () => {
     if (state) send({ type: "setAutoDj", value: !state.autoDj });
+  });
+  on("autoDjMode", "change", (e) => {
+    send({ type: "setAutoDjMode", mode: e.target.value });
+    e.target.blur();
   });
 
   on("playBtn", "click", () => {

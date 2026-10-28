@@ -64,7 +64,8 @@ rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
 
 CONTROL_ACTIONS = {"play", "pause", "seek", "next", "add", "remove", "move",
-                   "shuffle", "setVolume", "clearQueue", "setRepeatMode", "setAutoDj"}
+                   "shuffle", "setVolume", "clearQueue", "setRepeatMode", "setAutoDj",
+                   "setAutoDjMode"}
 
 # ---------- ระบบประกาศ ----------
 # เปิดให้ทุกเครื่องในวง LAN ประกาศได้ ไม่มีรหัสกั้น ตามแนวเดียวกับส่วนอื่นของแอป
@@ -461,8 +462,14 @@ async def _auto_dj_once(room: Room) -> None:
     }
     # เพลงที่กำลังเล่น ในคิว และ 10 เพลงล่าสุด — Auto DJ ห้ามได้เพลงเดียวกันนี้ (แม้คนละคลิป)
     avoid_titles = [t["title"] for t in room.queue] + [t["title"] for t in room.history[:10]]
-    next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids, avoid_titles)
+    # เพลงล่าสุดอาจหายากจนไม่มีในเพลย์ลิสต์ไหนเลย — ให้ถอยไปใช้เพลงก่อนหน้าได้
+    fallback_seeds = [(t.get("videoId", ""), t.get("title", "")) for t in room.history[:3]]
+    next_track = await find_auto_dj_track(seed_vid, seed_title, exclude_ids, avoid_titles,
+                                          room.auto_dj_mode, fallback_seeds)
     if not next_track:
+        # บอกให้รู้ ไม่งั้นคิวว่างเงียบ ๆ แล้วคนคิดว่าระบบค้าง
+        if room.auto_dj and len(room.queue) <= 1:
+            await notify(room, "Auto DJ หาเพลงต่อไม่ได้ ลองเพิ่มเพลงเอง หรือเปลี่ยนโหมด Auto DJ")
         return
     async with room.lock:
         # ระหว่างค้นหา อาจมีคนเพิ่มเพลงหรือปิด Auto DJ ไปแล้ว
@@ -742,6 +749,8 @@ async def handle(room: Room, client_id: str, message: dict[str, Any],
             room.set_repeat_mode(message.get("mode"))
         elif kind == "setAutoDj":
             room.set_auto_dj(message.get("value"))
+        elif kind == "setAutoDjMode":
+            room.set_auto_dj_mode(message.get("mode"))
         elif kind == "clearQueue":
             room.clear_queue()
 

@@ -2203,6 +2203,22 @@ button.role-tag {
 /* ปุ่มเปิดหน้าต่างประกาศ — ใช้โทนทองให้แยกจากปุ่มควบคุมเพลงที่เป็นสีเขียว
    เพราะประกาศส่งข้ามห้องได้ ผลกระทบกว้างกว่าปุ่มอื่นทั้งแถบ */
 button.ghost.gold,
+.mini-select {
+  font: inherit;
+  font-size: .78rem;
+  padding: .3rem .5rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mini-select:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
 .ghost.small.gold {
   color: var(--gold-soft);
   border-color: var(--line-gold);

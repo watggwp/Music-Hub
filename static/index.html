@@ -178,6 +178,10 @@
             <h2>คิวเพลง <span id="queueCount" class="muted"></span></h2>
             <div class="panel-acts">
               <button type="button" id="autoDjBtn" class="ghost small" title="เปิด/ปิด Auto DJ">Auto DJ</button>
+              <select id="autoDjMode" class="mini-select" title="Auto DJ จะหาเพลงแบบไหน">
+                <option value="genre">แนวเดียวกัน</option>
+                <option value="artist">ศิลปินเดิม</option>
+              </select>
               <button type="button" id="repeatBtn" class="ghost small" title="เปลี่ยนโหมดวนซ้ำ (กด R)">ไม่ซ้ำ</button>
               <button type="button" id="shuffleBtn" class="ghost small" title="สุ่มคิว (กด S)">สุ่ม</button>
               <button type="button" id="clearQueueBtn" class="ghost small danger" title="ล้างเพลงทั้งหมดในคิว">ล้างคิว</button>
@@ -329,7 +333,7 @@
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=44"></script>
+  <script src="/static/app.js?v=45"></script>
 </body>
 
 </html>
