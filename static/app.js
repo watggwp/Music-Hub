@@ -205,6 +205,17 @@
   let announceDuck = 0;        // ระดับเสียงที่หรี่ลงระหว่างประกาศ (0 = ไม่ได้ประกาศอยู่)
   let audioCtx = null;
   let ttsKeepAlive = null;
+  let announceAudio = null;    // คลิปเสียงประกาศที่กำลังเล่นอยู่ที่ลำโพงเครื่องนี้
+
+  /* อัดเสียงพูดเองในหน้าต่างประกาศ — คลิปพักไว้ที่เครื่องผู้ประกาศจนกว่าจะกดส่ง
+     ค่อยอัปโหลดขึ้นเซิร์ฟเวอร์ แล้วแนบ clipId ไปกับประกาศ ลำโพงดึงคลิปไปเล่นแทนเสียงอ่าน */
+  const REC_MAX_MS = 30000;
+  let recorder = null;         // MediaRecorder ระหว่างอัด (null = ไม่ได้อัดอยู่)
+  let recChunks = [];
+  let recStart = 0;
+  let recTimer = null;
+  let recClip = null;          // {blob, mime, ms, url} คลิปที่อัดเสร็จแล้ว รอส่ง
+  let sendingAnnounce = false;
 
   const THAI_RE = /[\u0E00-\u0E7F]/;   // ช่วงอักษรไทยในยูนิโค้ด
   const RATE_DEFAULT = 0.8;            // ช้ากว่าความเร็วปกติของเอนจิน ฟังทันตอนประกาศ
@@ -386,6 +397,156 @@
       + " ที่ความเร็ว " + chosenRate().toFixed(2) + "x");
   }
 
+  function stopClip() {
+    if (!announceAudio) return;
+    try { announceAudio.pause(); } catch (_) { }
+    announceAudio.onended = announceAudio.onerror = null;
+    announceAudio = null;
+  }
+
+  // ลำโพงเล่นคลิปเสียงที่ผู้ประกาศอัดมา แทนที่จะอ่านข้อความด้วยเสียงสังเคราะห์
+  function playClip(url, delayMs, forId) {
+    setTimeout(() => {
+      if (forId !== announceId) return;      // มีประกาศใหม่แซงมาก่อน อันนี้ตกรุ่นแล้ว
+      stopClip();
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      audio.volume = 1;
+      announceAudio = audio;
+      const finish = () => {
+        if (announceAudio === audio) announceAudio = null;
+        endDuck(forId);
+      };
+      audio.onended = finish;
+      audio.onerror = () => {
+        toast("ลำโพงเครื่องนี้เล่นคลิปเสียงประกาศไม่ได้ — ประกาศขึ้นเป็นข้อความอย่างเดียว", 7000);
+        finish();
+      };
+      const p = audio.play();
+      if (p && p.catch) {
+        p.catch(() => {
+          toast("เบราว์เซอร์ของลำโพงไม่ยอมเล่นคลิปเสียง — ประกาศขึ้นเป็นข้อความอย่างเดียว", 7000);
+          finish();
+        });
+      }
+    }, delayMs || 0);
+  }
+
+  function recSupported() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  }
+
+  /* Chrome/Edge/Firefox อัดเป็น webm/opus, Safari (iPhone/iPad/Mac) อัดได้แค่ mp4/AAC
+     ต้องไล่ถามทีละชนิด ไม่งั้น MediaRecorder จะโยน error ตั้งแต่สร้าง */
+  function recMime() {
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+    try {
+      return candidates.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+    } catch (_) { return ""; }
+  }
+
+  function updateRecUi() {
+    const btn = $("recBtn");
+    const status = $("recStatus");
+    const preview = $("recPreview");
+    if (!btn) return;
+    const recording = recorder !== null;
+    btn.classList.toggle("recording", recording);
+    btn.textContent = recording ? "หยุดอัด" : (recClip ? "อัดใหม่" : "อัดเสียงพูดเอง");
+    btn.disabled = sendingAnnounce;
+    if (preview) preview.hidden = recording || !recClip;
+    if (recClip && $("recAudio") && $("recAudio").src !== recClip.url) $("recAudio").src = recClip.url;
+    if (!recording) {
+      status.textContent = recClip
+        ? "คลิปยาว " + (recClip.ms / 1000).toFixed(1) + " วินาที — ลำโพงจะเล่นคลิปนี้แทนเสียงอ่าน"
+        : (recSupported() ? "ยังไม่มีคลิป"
+          : (window.isSecureContext ? "เบราว์เซอร์นี้อัดเสียงไม่ได้"
+            : "อัดเสียงได้เฉพาะเมื่อเปิดผ่าน https หรือ localhost"));
+    }
+    // มีคลิปแล้ว เสียงอ่านกับความเร็วไม่มีผล — ปิดไว้ให้เห็นชัดว่าใช้คลิปแทน
+    const useClip = !!recClip;
+    if ($("announceSpeak")) $("announceSpeak").disabled = useClip;
+    if ($("announceRate")) $("announceRate").disabled = useClip;
+    if ($("testVoiceBtn")) $("testVoiceBtn").disabled = useClip;
+  }
+
+  function discardClip() {
+    if (recClip && recClip.url) { try { URL.revokeObjectURL(recClip.url); } catch (_) { } }
+    recClip = null;
+    if ($("recAudio")) $("recAudio").removeAttribute("src");
+    updateRecUi();
+  }
+
+  async function startRecording() {
+    if (!recSupported()) {
+      toast(window.isSecureContext
+        ? "เบราว์เซอร์นี้อัดเสียงไม่ได้ ลองใช้ Chrome, Edge หรือ Safari รุ่นใหม่"
+        : "อัดเสียงได้เฉพาะเมื่อเปิดผ่าน https หรือ localhost เท่านั้น", 7000);
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+      toast("ไม่ได้รับอนุญาตให้ใช้ไมค์ — กดอนุญาตที่แถบที่อยู่ของเบราว์เซอร์แล้วลองใหม่", 7000);
+      return;
+    }
+    const mime = recMime();
+    let rec;
+    try {
+      rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch (_) {
+      stream.getTracks().forEach((t) => t.stop());
+      toast("เบราว์เซอร์นี้อัดเสียงไม่ได้", 6000);
+      return;
+    }
+    discardClip();
+    recorder = rec;
+    recChunks = [];
+    recStart = performance.now();
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    rec.onstop = () => {
+      const ms = Math.round(performance.now() - recStart);
+      stream.getTracks().forEach((t) => t.stop());
+      clearInterval(recTimer);
+      recTimer = null;
+      const type = rec.mimeType || mime || "audio/webm";
+      const blob = new Blob(recChunks, { type: type });
+      recorder = null;
+      recChunks = [];
+      if (ms < 500 || blob.size < 200) {
+        toast("คลิปสั้นเกินไป กดอัดแล้วพูดสักครู่ก่อนกดหยุด");
+      } else {
+        recClip = { blob: blob, mime: type.split(";")[0], ms: Math.min(ms, REC_MAX_MS),
+                    url: URL.createObjectURL(blob) };
+      }
+      updateRecUi();
+    };
+    rec.start(250);
+    recTimer = setInterval(() => {
+      const sec = (performance.now() - recStart) / 1000;
+      $("recStatus").textContent = "กำลังอัด… " + sec.toFixed(0) + " / " + (REC_MAX_MS / 1000) + " วินาที";
+      if (sec * 1000 >= REC_MAX_MS) stopRecording();
+    }, 200);
+    updateRecUi();
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    try { recorder.stop(); } catch (_) { recorder = null; updateRecUi(); }
+  }
+
+  async function uploadClip(clip) {
+    const res = await fetch("/api/announce-audio", {
+      method: "POST",
+      headers: { "Content-Type": clip.mime },
+      body: clip.blob,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || "อัปโหลดคลิปเสียงไม่สำเร็จ");
+    return data.clipId;
+  }
+
   function handleAnnouncement() {
     const ann = state ? state.announcement : null;
     const banner = $("announceBanner");
@@ -395,6 +556,7 @@
         announceId = null;
         announceDuck = 0;
         stopKeepAlive();
+        stopClip();
         try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) { }
         if (isSpeaker) applyVolume(effectiveVolume());
       }
@@ -416,22 +578,45 @@
     // เพิ่งรับช่วงเป็นโฮสต์ตอนประกาศใกล้จบ อ่านใหม่ตั้งแต่ต้นจะกวนกว่าเงียบ
     if (ann.endsAt - serverNow() < 1000) { endDuck(ann.id); return; }
     if (ann.chime) playChime();
-    if (ann.speak) speakAnnouncement(ann.text, ann.chime ? 850 : 0, ann.id, ann.rate);
+    if (ann.audio) playClip(ann.audio, ann.chime ? 850 : 0, ann.id);
+    else if (ann.speak) speakAnnouncement(ann.text, ann.chime ? 850 : 0, ann.id, ann.rate);
     else setTimeout(() => endDuck(ann.id), Math.max(0, ann.endsAt - serverNow()));
   }
 
-  function sendAnnouncement() {
+  async function sendAnnouncement() {
+    if (sendingAnnounce) return;
+    if (recorder) { toast("กำลังอัดอยู่ กดหยุดอัดก่อนแล้วค่อยส่ง"); return; }
     const text = ($("announceInput").value || "").trim();
-    if (!text) { toast("ยังไม่ได้พิมพ์ข้อความประกาศ"); return; }
+    if (!text && !recClip) { toast("ยังไม่ได้พิมพ์ข้อความหรืออัดเสียงประกาศ"); return; }
     localStorage.setItem("syntech.announceRate", String(chosenRate()));
-    send({
+
+    const payload = {
       type: "announce",
       text: text,
       scope: $("announceScope").value,
       speak: $("announceSpeak").checked,
       chime: $("announceChime").checked,
       rate: chosenRate(),
-    });
+    };
+    if (recClip) {
+      // อัปโหลดคลิปก่อน ได้ id แล้วค่อยส่งประกาศ ถ้าอัปโหลดล้มก็ยังแก้แล้วส่งใหม่ได้ ไม่เสียข้อความ
+      sendingAnnounce = true;
+      $("sendAnnounceBtn").disabled = true;
+      updateRecUi();
+      try {
+        payload.clipId = await uploadClip(recClip);
+        payload.clipMs = recClip.ms;
+      } catch (err) {
+        toast(err.message || "อัปโหลดคลิปเสียงไม่สำเร็จ", 7000);
+        return;
+      } finally {
+        sendingAnnounce = false;
+        $("sendAnnounceBtn").disabled = false;
+        updateRecUi();
+      }
+    }
+    send(payload);
+    discardClip();
     $("announceInput").value = "";
     $("announceCount").textContent = "0 / 200";
     $("announceModal").hidden = true;
@@ -1244,6 +1429,8 @@
     announceId = null;
     announceDuck = 0;
     stopKeepAlive();
+    stopClip();
+    stopRecording();
     try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) { }
     if ($("announceBanner")) $("announceBanner").hidden = true;
     if ($("announceModal")) $("announceModal").hidden = true;
@@ -1587,13 +1774,17 @@
     const savedRate = localStorage.getItem("syntech.announceRate");
     if (savedRate && $("announceRate")) $("announceRate").value = savedRate;
     loadVoices();
+    updateRecUi();
     modal.hidden = false;
     $("announceInput").focus();
   });
-  on("closeAnnounceBtn", "click", () => { $("announceModal").hidden = true; });
+  // ปิดหน้าต่างระหว่างอัดอยู่ = หยุดอัดด้วย ไม่งั้นไมค์ค้างเปิดทั้งที่มองไม่เห็นอะไร
+  on("closeAnnounceBtn", "click", () => { stopRecording(); $("announceModal").hidden = true; });
   on("announceModal", "click", (e) => {
-    if (e.target === $("announceModal")) $("announceModal").hidden = true;
+    if (e.target === $("announceModal")) { stopRecording(); $("announceModal").hidden = true; }
   });
+  on("recBtn", "click", () => { if (recorder) stopRecording(); else startRecording(); });
+  on("recDiscardBtn", "click", discardClip);
   on("announceInput", "input", (e) => {
     $("announceCount").textContent = e.target.value.length + " / 200";
   });

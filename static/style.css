@@ -2314,6 +2314,47 @@ button.ghost.gold,
   animation: popIn .2s var(--ease);
 }
 
+.announce-rec {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  padding: .75rem var(--pad);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.announce-rec-row {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  flex-wrap: wrap;
+}
+
+.announce-rec-row[hidden] {
+  display: none;
+}
+
+.announce-rec audio {
+  flex: 1 1 180px;
+  min-width: 0;
+  height: 36px;
+}
+
+.announce-rec .hint {
+  margin: 0;
+}
+
+#recBtn.recording {
+  color: #ff9a9a;
+  border-color: rgba(255, 110, 110, .55);
+  animation: recPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes recPulse {
+  50% { background: rgba(255, 90, 90, .16); }
+}
+
 .announce-modal-card > label:not(.toggle) {
   margin-top: .35rem;
   font-size: .82rem;

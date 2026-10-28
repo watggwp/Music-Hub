@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .room import Room
@@ -78,6 +78,19 @@ ANNOUNCE_RATE_MAX = 1.5
 
 _announce_at: dict[str, float] = {}   # client_id -> เวลาที่ประกาศล่าสุด
 _announce_last = 0.0                  # เวลาที่มีประกาศล่าสุดของทั้งระบบ
+
+# ---------- ประกาศด้วยเสียงอัดเอง ----------
+# ผู้ประกาศอัดเสียงในเบราว์เซอร์ แล้วอัปโหลดคลิปมาพักไว้ในหน่วยความจำก่อนส่งประกาศ
+# เครื่องลำโพงดึงคลิปไปเล่นแทนเสียงอ่าน คลิปอยู่ชั่วคราวเท่านั้น ไม่เขียนลงดิสก์
+# (บน Render ดิสก์หายทุกครั้งที่ deploy อยู่แล้ว และคลิปไม่กี่สิบวินาทีไม่มีค่าควรเก็บ)
+CLIP_MAX_MS = 30_000            # ความยาวคลิปสูงสุด — นานกว่านี้เพลงโดนหรี่นานเกินไป
+CLIP_MAX_BYTES = 3_000_000      # opus 30 วิ ~ 150 KB แต่ iPhone อัดเป็น AAC ซึ่งใหญ่กว่าหลายเท่า
+CLIP_TTL = 600.0                # วินาที — คลิปที่อัปโหลดแล้วไม่ถูกใช้ หรือใช้จบแล้ว ลบทิ้ง
+CLIP_MAX_COUNT = 50             # กันคนยิงอัปโหลดรัวจนกินหน่วยความจำ
+CLIP_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/aac",
+              "audio/x-m4a", "audio/3gpp"}
+
+_clips: dict[str, dict[str, Any]] = {}   # clip_id -> {data, mime, at}
 
 
 def now_ms() -> int:
@@ -171,6 +184,20 @@ def announce_ms(text: str, speak: bool, rate: float = ANNOUNCE_RATE_DEFAULT) -> 
     return int(min(150_000, max(5_000, seconds * 1000 + 3_000)))
 
 
+def prune_clips() -> None:
+    now = time.monotonic()
+    for clip_id, clip in list(_clips.items()):
+        if now - clip["at"] > CLIP_TTL:
+            _clips.pop(clip_id, None)
+
+
+def clamp_clip_ms(value: Any) -> int:
+    try:
+        return int(max(1_000, min(CLIP_MAX_MS, float(value))))
+    except (TypeError, ValueError):
+        return CLIP_MAX_MS
+
+
 async def announce_targets(room: Room, scope: str) -> list[Room]:
     """ห้องที่จะได้ยินประกาศนี้ — ข้ามห้องร้างที่ไม่มีใครอยู่"""
     if scope != "all":
@@ -207,8 +234,15 @@ async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
     global _announce_last
 
     text = " ".join(str(message.get("text") or "").split())[:ANNOUNCE_MAX_CHARS]
-    if not text:
-        await socket.send_json({"type": "error", "message": "ยังไม่ได้พิมพ์ข้อความประกาศ"})
+    clip_id = str(message.get("clipId") or "")
+    if clip_id:
+        prune_clips()
+        if clip_id not in _clips:
+            await socket.send_json({"type": "error",
+                                    "message": "คลิปเสียงหมดอายุหรือหาไม่เจอ กรุณาอัดใหม่"})
+            return
+    if not text and not clip_id:
+        await socket.send_json({"type": "error", "message": "ยังไม่ได้พิมพ์ข้อความหรืออัดเสียงประกาศ"})
         return
 
     now = time.monotonic()
@@ -232,10 +266,17 @@ async def handle_announce(room: Room, client_id: str, message: dict[str, Any],
 
     speak = message.get("speak") is not False
     rate = clamp_rate(message.get("rate", ANNOUNCE_RATE_DEFAULT))
-    duration = announce_ms(text, speak, rate)
+    if clip_id:
+        # คลิปเสียงมาแทนเสียงอ่าน — เวลาล้างประกาศคิดจากความยาวคลิปที่ฝั่งอัดวัดไว้
+        # (ไฟล์ webm จาก MediaRecorder ไม่มี duration ในหัวไฟล์ เซิร์ฟเวอร์อ่านเองไม่ได้)
+        speak = False
+        duration = clamp_clip_ms(message.get("clipMs")) + 3_000
+    else:
+        duration = announce_ms(text, speak, rate)
     ann = {
         "id": secrets.token_hex(6),
-        "text": text,
+        "text": text or "ประกาศด้วยเสียง",
+        "audio": f"/api/announce-audio/{clip_id}" if clip_id else None,
         "by": room.names.get(client_id, "ผู้ประกาศ"),
         "fromRoom": room.code,
         "scope": scope,
@@ -316,6 +357,44 @@ async def api_search(q: str = "") -> JSONResponse:
     results = await search_videos(query)
     message = "" if results else "ไม่พบผลค้นหา (หรือ YouTube ไม่ตอบ ลองอีกครั้ง)"
     return JSONResponse({"results": results, "message": message})
+
+
+@app.post("/api/announce-audio")
+async def upload_announce_audio(request: Request) -> JSONResponse:
+    """รับคลิปเสียงที่อัดจากเบราว์เซอร์ พักไว้ชั่วคราว แล้วคืน id ให้เอาไปแนบกับประกาศ
+
+    ส่งเป็น body ดิบ ๆ พร้อม Content-Type ของคลิป ไม่ใช้ multipart จะได้ไม่ต้องพึ่งไลบรารีเพิ่ม
+    """
+    mime = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if mime not in CLIP_MIMES:
+        return JSONResponse({"message": "ชนิดไฟล์เสียงนี้ไม่รองรับ"}, status_code=415)
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > CLIP_MAX_BYTES:
+        return JSONResponse({"message": "คลิปเสียงใหญ่เกินไป"}, status_code=413)
+
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > CLIP_MAX_BYTES:
+            return JSONResponse({"message": "คลิปเสียงใหญ่เกินไป"}, status_code=413)
+    if len(data) < 200:
+        return JSONResponse({"message": "คลิปเสียงว่างเปล่า กรุณาอัดใหม่"}, status_code=400)
+
+    prune_clips()
+    if len(_clips) >= CLIP_MAX_COUNT:
+        return JSONResponse({"message": "มีคลิปรออยู่มากเกินไป ลองใหม่อีกสักครู่"}, status_code=429)
+    clip_id = secrets.token_hex(8)
+    _clips[clip_id] = {"data": bytes(data), "mime": mime, "at": time.monotonic()}
+    return JSONResponse({"clipId": clip_id})
+
+
+@app.get("/api/announce-audio/{clip_id}")
+async def get_announce_audio(clip_id: str) -> Response:
+    clip = _clips.get(clip_id)
+    if clip is None:
+        return JSONResponse({"message": "ไม่พบคลิปเสียง"}, status_code=404)
+    return Response(content=clip["data"], media_type=clip["mime"],
+                    headers={"Cache-Control": "no-store"})
 
 
 # ---------------- WebSocket ----------------

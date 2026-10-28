@@ -292,6 +292,18 @@
         placeholder="เช่น เชิญทุกท่านที่ห้องประชุมใหญ่ ชั้น 3 ในอีก 10 นาที"></textarea>
       <p class="hint"><span id="announceCount">0 / 200</span></p>
 
+      <div class="announce-rec">
+        <div class="announce-rec-row">
+          <button type="button" id="recBtn" class="ghost small gold">อัดเสียงพูดเอง</button>
+          <span id="recStatus" class="tiny muted">ยังไม่มีคลิป</span>
+        </div>
+        <div id="recPreview" class="announce-rec-row" hidden>
+          <audio id="recAudio" controls preload="auto"></audio>
+          <button type="button" id="recDiscardBtn" class="ghost small">ลบคลิป</button>
+        </div>
+        <p class="hint" id="recHint">อัดได้ไม่เกิน 30 วินาที ถ้ามีคลิป ลำโพงจะเล่นเสียงของคุณแทนเสียงอ่าน ส่วนข้อความจะขึ้นเป็นแบนเนอร์ (พิมพ์หรือไม่พิมพ์ก็ได้)</p>
+      </div>
+
       <div class="announce-opts">
         <label for="announceScope">ส่งไปที่</label>
         <select id="announceScope">
@@ -327,7 +339,7 @@
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="/static/app.js?v=41"></script>
+  <script src="/static/app.js?v=42"></script>
 </body>
 
 </html>
